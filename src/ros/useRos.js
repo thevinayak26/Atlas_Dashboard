@@ -13,7 +13,7 @@
 // touches the socket. Returns { ros, status, url } with status one of:
 //   'connecting' | 'connected' | 'reconnecting' | 'down'
 // ─────────────────────────────────────────────────────────────────────────────
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import * as ROSLIB from 'roslib';
 import { ROSBRIDGE_URL } from './topics';
 
@@ -54,7 +54,6 @@ function ensureRos() {
   ros.on('connection', () => {
     backoff = RECONNECT_MIN;
     setStatus('connected');
-    // eslint-disable-next-line no-console
     console.log(`[ros] connected → ${ROSBRIDGE_URL}`);
   });
   ros.on('error', () => {
@@ -63,7 +62,6 @@ function ensureRos() {
   });
   ros.on('close', () => {
     setStatus('down');
-    // eslint-disable-next-line no-console
     console.warn('[ros] connection closed — retrying');
     scheduleReconnect();
   });
@@ -72,15 +70,21 @@ function ensureRos() {
   return ros;
 }
 
+// useSyncExternalStore is the idiomatic React 19 way to read from the module
+// singleton above: it subscribes to status changes and always reads the live
+// snapshot, with no setState-in-effect (which the earlier useState/useEffect
+// pattern tripped the react-hooks lint on) and no risk of missing a status
+// change that lands between first render and subscribe.
+function subscribeStatus(cb) {
+  statusListeners.add(cb);
+  return () => statusListeners.delete(cb);
+}
+function getStatusSnapshot() {
+  return currentStatus;
+}
+
 export function useRos() {
   const rosInstance = ensureRos();
-  const [status, setLocal] = useState(currentStatus);
-
-  useEffect(() => {
-    setLocal(currentStatus); // sync in case status changed before subscribe
-    statusListeners.add(setLocal);
-    return () => statusListeners.delete(setLocal);
-  }, []);
-
+  const status = useSyncExternalStore(subscribeStatus, getStatusSnapshot);
   return { ros: rosInstance, status, url: ROSBRIDGE_URL };
 }

@@ -1,99 +1,93 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// App.jsx — PHASE 0 ONLY (spec §9): skeleton + connection.
-// Goal: status shows "connected" against a replayed rosbag (here: fake_publisher),
-// and ONE test subscription logs real messages to the console.
-// Styling/tiles come in later phases — this is intentionally bare.
+// App.jsx — ATLAS Console (Phase 2): the full dashboard.
+//
+// Composition only: it owns the connection + derived-data hooks and distributes
+// their output to the tiles. The data discipline (spec §10) lives in the hooks —
+// each ROS topic is subscribed exactly once (MapCanvas: /map,/scan,/robot_pose;
+// useRobotData: /odom,/imu,/sys_stats; useRosHealth: /rosapi/nodes) and React
+// state updates are throttled, so a 20 Hz robot doesn't cause 20 Hz re-renders.
+//
+// HONESTY (spec §1): tiles whose hardware/feature isn't built yet (camera,
+// ultrasonics) render explicit offline states; everything else is real data.
 // ─────────────────────────────────────────────────────────────────────────────
-import { useEffect, useRef, useState } from 'react';
-import * as ROSLIB from 'roslib';
+import { useState } from 'react';
 import { useRos } from './ros/useRos';
-import { TOPICS, SUB_OPTS } from './ros/topics';
+import { useRobotData } from './ros/useRobotData';
+import { useRosHealth } from './ros/useRosHealth';
+import { useTheme } from './hooks/useTheme';
+import { useMissionClock } from './hooks/useMissionClock';
+import { useEventLog } from './hooks/useEventLog';
+import Header from './components/Header';
+import Intro from './components/Intro';
+import MapCard from './components/MapCard';
+import CameraCard from './components/CameraCard';
+import TelemetryCard from './components/TelemetryCard';
+import StripCard from './components/StripCard';
 
-const STATUS_COLOR = {
-  connecting:   '#fbbf24',
-  connected:    '#2dd4bf',
-  reconnecting: '#fbbf24',
-  down:         '#fb7185',
-};
+const EMPTY_MAP_STATS = { pose: null, coverage: null, frontiers: null, scanHz: null };
 
-// The single test subscription for Phase 0's acceptance criterion.
-const TEST = TOPICS.odom;
+function deriveMode(status, moving, coverage) {
+  if (status !== 'connected') return 'Standby';
+  if (coverage != null && coverage >= 95) return 'Complete';
+  return moving ? 'Exploring' : 'Idle';
+}
 
 export default function App() {
-  const { ros, status, url } = useRos();
-  const [count, setCount] = useState(0);
-  const [last, setLast] = useState(null);
-  const countRef = useRef(0);
+  const { theme, toggle } = useTheme();
+  const { ros, status } = useRos();
+  const clock = useMissionClock(status);
+  const robot = useRobotData(ros, status);
+  const health = useRosHealth(ros, status);
 
-  useEffect(() => {
-    if (status !== 'connected') return undefined;
-    let topic;
-    try {
-      topic = new ROSLIB.Topic({
-        ros,
-        name: TEST.name,
-        messageType: TEST.type,
-        ...(SUB_OPTS.odom || {}),
-      });
-      topic.subscribe((msg) => {
-        countRef.current += 1;
-        // eslint-disable-next-line no-console
-        console.log(`[ros] ${TEST.name} #${countRef.current}`, msg);
-        setCount(countRef.current);
-        setLast(msg);
-      });
-    } catch (e) {
-      // A transient roslib/WebSocket race must not crash the tree; log and move on.
-      // eslint-disable-next-line no-console
-      console.warn('[ros] subscribe failed (will not crash UI):', e?.message || e);
-    }
-    return () => {
-      try { topic?.unsubscribe(); } catch { /* socket already gone */ }
-    };
-  }, [ros, status]);
+  // Stats the map derives and reports up (pose/coverage/frontiers/scanHz).
+  const [mapStats, setMapStats] = useState(EMPTY_MAP_STATS);
+  const { pose, coverage, frontiers, scanHz } = mapStats;
 
-  const pos = last?.pose?.pose?.position;
-  const lin = last?.twist?.twist?.linear;
+  const mode = deriveMode(status, robot.moving, coverage);
+  const events = useEventLog({ status, coverage, moving: robot.moving });
+  const loading = status !== 'connected';
 
   return (
-    <div style={{ fontFamily: 'monospace', padding: 24, lineHeight: 1.7 }}>
-      <h1 style={{ fontFamily: 'serif', fontWeight: 500 }}>
-        ATLAS Console — <em>Phase 0</em>
-      </h1>
-
-      <p>
-        <span
-          style={{
-            display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-            background: STATUS_COLOR[status], marginRight: 8,
-          }}
+    <>
+      <Intro />
+      <Header
+        clock={clock}
+        mode={mode}
+        hz={robot.odomHz}
+        status={status}
+        theme={theme}
+        onToggleTheme={toggle}
+      />
+      <main>
+        <MapCard
+          ros={ros}
+          status={status}
+          theme={theme}
+          pose={pose}
+          coverage={coverage}
+          loading={loading}
+          onStats={setMapStats}
         />
-        rosbridge: <b style={{ color: STATUS_COLOR[status] }}>{status}</b>
-        {'  '}<span style={{ opacity: 0.6 }}>({url})</span>
-      </p>
-
-      <hr style={{ opacity: 0.2, margin: '16px 0' }} />
-
-      <p>test subscription: <b>{TEST.name}</b> <span style={{ opacity: 0.6 }}>({TEST.type})</span></p>
-      <p>messages received: <b>{count}</b></p>
-      {last ? (
-        <pre style={{ background: '#11161d', color: '#9be0c4', padding: 12, borderRadius: 8, maxWidth: 520 }}>
-{pos
-  ? `pose.position  x=${pos.x.toFixed(3)}  y=${pos.y.toFixed(3)}  z=${pos.z.toFixed(3)}
-twist.linear   x=${lin.x.toFixed(3)}  y=${lin.y.toFixed(3)}`
-  : JSON.stringify(last, null, 2).slice(0, 400)}
-        </pre>
-      ) : (
-        <p style={{ opacity: 0.6 }}>
-          {status === 'connected'
-            ? 'connected — waiting for first message (is fake_publisher running?)'
-            : 'not connected yet…'}
-        </p>
-      )}
-
-      <p style={{ opacity: 0.5, marginTop: 24, fontSize: 12 }}>
-        Open the browser console to see each real message logged.
-      </p>
-    </div>
+        <CameraCard theme={theme} />
+        <TelemetryCard
+          coverage={coverage}
+          frontiers={frontiers}
+          dist={robot.dist}
+          vel={robot.vel}
+          moving={robot.moving}
+          loading={loading}
+          theme={theme}
+        />
+        <StripCard
+          robot={robot}
+          health={health}
+          scanHz={scanHz}
+          events={events}
+          pose={pose}
+          loading={loading}
+          theme={theme}
+        />
+      </main>
+    </>
   );
 }
