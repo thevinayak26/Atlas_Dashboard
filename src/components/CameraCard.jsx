@@ -1,13 +1,13 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// CameraCard.jsx — Camera tile.
+// -----------------------------------------------------------------------------
+// CameraCard.jsx - Camera tile.
 //
 // HONESTY (spec §1): the camera isn't wired yet (TOPICS.camera.status === 'later'),
-// so the header reads "offline" — NOT a fabricated "640×480 · 15 fps", which would
+// so the header reads "offline" - NOT a fabricated "640×480 · 15 fps", which would
 // be a made-up spec for hardware that isn't streaming. The <img> path is ready for
 // the day a web_video_server MJPEG stream exists: flip the topic status to 'live'
 // and it renders the real feed (and could surface the stream's real resolution),
 // falling back to the placeholder on any load error.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useState } from 'react';
 import { TOPICS, cameraUrl } from '../ros/topics';
 import GlassSurface from './GlassSurface';

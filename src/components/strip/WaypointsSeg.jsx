@@ -1,9 +1,9 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// WaypointsSeg.jsx — operator-defined goal points. The list is app config (these
+// -----------------------------------------------------------------------------
+// WaypointsSeg.jsx - operator-defined goal points. The list is app config (these
 // are where we *want* the robot to go), but the distance column and the "active"
-// (nearest) highlight are computed live from the real /robot_pose — so it stays
+// (nearest) highlight are computed live from the real /robot_pose - so it stays
 // truthful as the robot moves.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import Skeleton from '../Skeleton';
 
 const WAYPOINTS = [

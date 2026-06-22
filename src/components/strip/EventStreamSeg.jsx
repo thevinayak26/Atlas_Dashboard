@@ -1,8 +1,8 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// EventStreamSeg.jsx — renders the real event log (see hooks/useEventLog.js).
+// -----------------------------------------------------------------------------
+// EventStreamSeg.jsx - renders the real event log (see hooks/useEventLog.js).
 // .stream is flex column-reverse, so rendering oldest→newest puts the newest line
 // on top with the slide-in animation.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import Skeleton from '../Skeleton';
 
 export default function EventStreamSeg({ events, loading }) {

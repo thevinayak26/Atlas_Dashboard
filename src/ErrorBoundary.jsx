@@ -1,9 +1,9 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// ErrorBoundary.jsx — defense in depth. A throw in render or a passive effect
+// -----------------------------------------------------------------------------
+// ErrorBoundary.jsx - defense in depth. A throw in render or a passive effect
 // (e.g. a transient roslib/WebSocket race) otherwise unmounts the whole tree and
 // leaves a blank page with no on-screen clue. This catches it and shows the
 // error so failures are visible in the browser, not just the console.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { Component } from 'react';
 
 export default class ErrorBoundary extends Component {

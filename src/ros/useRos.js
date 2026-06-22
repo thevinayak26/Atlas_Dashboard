@@ -1,24 +1,24 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// useRos.js — rosbridge connection + auto-reconnect (spec §4, §10).
+// -----------------------------------------------------------------------------
+// useRos.js - rosbridge connection + auto-reconnect (spec §4, §10).
 //
 // The ROSLIB.Ros connection is a MODULE SINGLETON, created and connected exactly
-// once — NOT inside a React effect. Why: React StrictMode (and Vite HMR) mount
+// once - NOT inside a React effect. Why: React StrictMode (and Vite HMR) mount
 // effects twice, and driving connect()/close() from an effect churns the socket.
 // roslib's connect() early-returns while a transport is still closing, which
 // desyncs its internal isConnected flag from the real socket and makes the next
-// send() throw "WebSocket … Still in CONNECTING state" — exactly the bug that
+// send() throw "WebSocket … Still in CONNECTING state" - exactly the bug that
 // white-screened Phase 0. One socket, created once, sidesteps the whole race.
 //
 // The hook only *subscribes to status updates*; mounting/unmounting it never
 // touches the socket. Returns { ros, status, url } with status one of:
 //   'connecting' | 'connected' | 'reconnecting' | 'down'
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useSyncExternalStore } from 'react';
 import * as ROSLIB from 'roslib';
 import { ROSBRIDGE_URL } from './topics';
 
 const RECONNECT_MIN = 1000;   // ms
-const RECONNECT_MAX = 8000;   // ms — cap so we keep retrying without hammering
+const RECONNECT_MAX = 8000;   // ms - cap so we keep retrying without hammering
 
 let ros = null;
 let currentStatus = 'connecting';
@@ -62,7 +62,7 @@ function ensureRos() {
   });
   ros.on('close', () => {
     setStatus('down');
-    console.warn('[ros] connection closed — retrying');
+    console.warn('[ros] connection closed - retrying');
     scheduleReconnect();
   });
 

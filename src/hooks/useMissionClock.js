@@ -1,8 +1,8 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// useMissionClock.js — "Mission T+ HH:MM:SS" counting from the first successful
+// -----------------------------------------------------------------------------
+// useMissionClock.js - "Mission T+ HH:MM:SS" counting from the first successful
 // rosbridge link. Resets if the link drops and re-establishes, so the clock
 // reflects the current session rather than wall-clock time.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 
 const fmt = (s) =>

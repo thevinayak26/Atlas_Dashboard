@@ -1,16 +1,16 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// App.jsx — ATLAS Console (Phase 2): the full dashboard.
+// -----------------------------------------------------------------------------
+// App.jsx - ATLAS Console (Phase 2): the full dashboard.
 //
 // Composition only: it owns the connection + derived-data hooks and distributes
-// their output to the tiles. The data discipline (spec §10) lives in the hooks —
+// their output to the tiles. The data discipline (spec §10) lives in the hooks -
 // each ROS topic is subscribed exactly once (MapCanvas: /map,/scan,/robot_pose;
 // useRobotData: /odom,/imu,/sys_stats; useRosHealth: /rosapi/nodes) and React
 // state updates are throttled, so a 20 Hz robot doesn't cause 20 Hz re-renders.
 //
 // HONESTY (spec §1): tiles whose hardware/feature isn't built yet (camera,
 // ultrasonics) render explicit offline states; everything else is real data.
-// ─────────────────────────────────────────────────────────────────────────────
-import { useState } from 'react';
+// -----------------------------------------------------------------------------
+import { useState, useEffect } from 'react';
 import { useRos } from './ros/useRos';
 import { useRobotData } from './ros/useRobotData';
 import { useRosHealth } from './ros/useRosHealth';
@@ -23,8 +23,22 @@ import MapCard from './components/MapCard';
 import CameraCard from './components/CameraCard';
 import TelemetryCard from './components/TelemetryCard';
 import StripCard from './components/StripCard';
+import RadarCard from './components/RadarCard';
+import DiagCard from './components/DiagCard';
 
 const EMPTY_MAP_STATS = { pose: null, coverage: null, frontiers: null, scanHz: null };
+
+// Map overlay visibility - persisted so a chosen view survives a reload.
+const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, grid: false };
+const LAYERS_KEY = 'atlas.mapLayers';
+function loadLayers() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYERS_KEY));
+    return saved && typeof saved === 'object' ? { ...DEFAULT_LAYERS, ...saved } : DEFAULT_LAYERS;
+  } catch {
+    return DEFAULT_LAYERS;
+  }
+}
 
 function deriveMode(status, moving, coverage) {
   if (status !== 'connected') return 'Standby';
@@ -42,6 +56,12 @@ export default function App() {
   // Stats the map derives and reports up (pose/coverage/frontiers/scanHz).
   const [mapStats, setMapStats] = useState(EMPTY_MAP_STATS);
   const { pose, coverage, frontiers, scanHz } = mapStats;
+
+  // Which map overlays are visible (persisted across reloads).
+  const [layers, setLayers] = useState(loadLayers);
+  useEffect(() => {
+    try { localStorage.setItem(LAYERS_KEY, JSON.stringify(layers)); } catch { /* private mode */ }
+  }, [layers]);
 
   const mode = deriveMode(status, robot.moving, coverage);
   const events = useEventLog({ status, coverage, moving: robot.moving });
@@ -67,6 +87,8 @@ export default function App() {
           coverage={coverage}
           loading={loading}
           onStats={setMapStats}
+          layers={layers}
+          onLayersChange={setLayers}
         />
         <CameraCard theme={theme} />
         <TelemetryCard
@@ -85,6 +107,15 @@ export default function App() {
           events={events}
           pose={pose}
           loading={loading}
+          theme={theme}
+        />
+        <RadarCard ros={ros} status={status} theme={theme} />
+        <DiagCard
+          status={status}
+          robot={robot}
+          scanHz={scanHz}
+          pose={pose}
+          health={health}
           theme={theme}
         />
       </main>

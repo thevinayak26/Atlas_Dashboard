@@ -1,8 +1,8 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// useTheme.js — dark/light theme controller. Writes data-theme onto <html> (the
+// -----------------------------------------------------------------------------
+// useTheme.js - dark/light theme controller. Writes data-theme onto <html> (the
 // selector theme.css keys off), and persists the choice to localStorage so a
 // reload keeps it. Defaults to the OS preference on first visit.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useCallback, useEffect, useState } from 'react';
 
 const KEY = 'atlas-theme';

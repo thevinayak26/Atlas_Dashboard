@@ -1,5 +1,5 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// GlassSurface.jsx — vendored from React Bits (JS + CSS variant).
+// -----------------------------------------------------------------------------
+// GlassSurface.jsx - vendored from React Bits (JS + CSS variant).
 // Apple-style "liquid glass": an SVG per-channel displacement map is fed to a
 // backdrop-filter so the content BEHIND the surface is refracted at the edges.
 // Chromium-only for the real effect (Safari/Firefox fall back to a frosted blur,
@@ -9,7 +9,7 @@
 // moved the imperative map/ref updaters inside the effects that use them so the
 // component passes this project's React-Compiler ESLint rules (no ref access or
 // impure calls in render-phase functions). Behaviour is unchanged.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useEffect, useState, useRef, useId } from 'react';
 import './GlassSurface.css';
 

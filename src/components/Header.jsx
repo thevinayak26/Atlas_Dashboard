@@ -1,9 +1,9 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Header.jsx — the top bar: brand, mission clock, mode/rate/link pills, theme
+// -----------------------------------------------------------------------------
+// Header.jsx - the top bar: brand, mission clock, mode/rate/link pills, theme
 // toggle. Mode, rate and link all reflect REAL state (motion, measured odom Hz,
 // rosbridge status); nothing here is decorative-only. The wordmark reveals the
 // ATLAS acronym on hover (after a beat) or tap.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useState } from 'react';
 
 const LINK = {
@@ -50,7 +50,7 @@ export default function Header({ clock, mode, hz, status, theme, onToggleTheme }
       </div>
       <div className="pill">
         <span className="k">Rate</span>
-        <span className="v num">{hz != null ? Math.round(hz) : '—'}</span>
+        <span className="v num">{hz != null ? Math.round(hz) : '-'}</span>
       </div>
       <div className="pill">
         <span className={'blip' + (link.blip ? ' ' + link.blip : '')} />

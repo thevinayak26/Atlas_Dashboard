@@ -1,7 +1,7 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// AttitudeSeg.jsx — yaw compass + gyro-z from /imu/data. IMU/LIDAR rows reflect
-// whether those streams are actually arriving (FUSED/OK vs LOST/—).
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// AttitudeSeg.jsx - yaw compass + gyro-z from /imu/data. IMU/LIDAR rows reflect
+// whether those streams are actually arriving (FUSED/OK vs LOST/-).
+// -----------------------------------------------------------------------------
 import { toDeg, signed } from '../../lib/geometry';
 import Skeleton from '../Skeleton';
 
@@ -27,11 +27,11 @@ export default function AttitudeSeg({ yaw, gyroZ, imuOk, lidarOk, loading }) {
           <div className="vals">
             <div className="row">
               <span className="k">YAW</span>
-              {wait ? <Skeleton width={48} height={11} /> : <span className="v">{yaw != null ? signed(yd, 1) + '°' : '—'}</span>}
+              {wait ? <Skeleton width={48} height={11} /> : <span className="v">{yaw != null ? signed(yd, 1) + '°' : '-'}</span>}
             </div>
             <div className="row">
               <span className="k">GYRO&nbsp;Z</span>
-              {wait ? <Skeleton width={48} height={11} /> : <span className="v">{gyroZ != null ? signed(gyroZ) : '—'}</span>}
+              {wait ? <Skeleton width={48} height={11} /> : <span className="v">{gyroZ != null ? signed(gyroZ) : '-'}</span>}
             </div>
             <div className="row">
               <span className="k">IMU</span>
@@ -39,7 +39,7 @@ export default function AttitudeSeg({ yaw, gyroZ, imuOk, lidarOk, loading }) {
             </div>
             <div className="row">
               <span className="k">LIDAR</span>
-              {wait ? <Skeleton width={42} height={11} /> : <span className={'v ' + (lidarOk ? 'ok' : 'bad')}>{lidarOk ? 'OK' : '—'}</span>}
+              {wait ? <Skeleton width={42} height={11} /> : <span className={'v ' + (lidarOk ? 'ok' : 'bad')}>{lidarOk ? 'OK' : '-'}</span>}
             </div>
           </div>
         </div>

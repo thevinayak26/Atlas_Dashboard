@@ -1,12 +1,12 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// useRosHealth.js — System-Health tile data sourced from REAL rosbridge state.
+// -----------------------------------------------------------------------------
+// useRosHealth.js - System-Health tile data sourced from REAL rosbridge state.
 //
 // Calls the rosapi service /rosapi/nodes on a 2 s poll. The response gives the
 // live ROS node list (real "N nodes up"), and timing the round-trip gives a real
-// link-latency figure — no invented "12 ms". rosapi ships with rosbridge_server
+// link-latency figure - no invented "12 ms". rosapi ships with rosbridge_server
 // by default; if it's somehow absent the hook degrades to nulls and the tile
-// shows "—" rather than guessing.
-// ─────────────────────────────────────────────────────────────────────────────
+// shows "-" rather than guessing.
+// -----------------------------------------------------------------------------
 import { useEffect, useState } from 'react';
 import * as ROSLIB from 'roslib';
 
@@ -31,7 +31,7 @@ export function useRosHealth(ros, status) {
 
     const poll = () => {
       const t0 = performance.now();
-      // roslib v2 dropped ROSLIB.ServiceRequest — callService takes a plain object.
+      // roslib v2 dropped ROSLIB.ServiceRequest - callService takes a plain object.
       nodesSvc.callService(
         {},
         (res) => {

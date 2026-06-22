@@ -1,7 +1,7 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// StripCard.jsx — the bottom strip: Attitude · Ultrasonic · Event Stream ·
+// -----------------------------------------------------------------------------
+// StripCard.jsx - the bottom strip: Attitude · Ultrasonic · Event Stream ·
 // System Health · Waypoints. Pure layout; each segment owns its own rendering.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import AttitudeSeg from './strip/AttitudeSeg';
 import UltrasonicSeg from './strip/UltrasonicSeg';
 import EventStreamSeg from './strip/EventStreamSeg';

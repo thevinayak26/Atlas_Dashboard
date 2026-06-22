@@ -1,10 +1,10 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Intro.jsx — a short cinematic boot sequence shown once per page load. The ATLAS
+// -----------------------------------------------------------------------------
+// Intro.jsx - a short cinematic boot sequence shown once per page load. The ATLAS
 // wordmark resolves out of a blurred, wide-tracked state while expanding rings and
 // a progress bar play, then the whole overlay fades to reveal the dashboard
 // (whose cards are already doing their staggered rise underneath). Self-unmounts
 // after the animation so it never blocks interaction.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useEffect, useState } from 'react';
 
 export default function Intro() {

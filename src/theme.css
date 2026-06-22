@@ -1,12 +1,12 @@
-/* ─────────────────────────────────────────────────────────────────────────────
-   theme.css — the ATLAS Console design system.
+/* -----------------------------------------------------------------------------
+   theme.css - the ATLAS Console design system.
    Ported verbatim in spirit from design/dashboard_mockup_v2.html so the live app
    matches the approved mockup pixel-for-pixel, then extended with:
      • honest "offline" tile styling (camera / ultrasonic hardware not built yet),
      • a responsive fallback so the fixed desktop grid stacks on a phone (spec §4).
    All colour/spacing decisions live here as CSS custom properties; components
-   reference var(--…) only — no hard-coded hex in JSX.
-   ───────────────────────────────────────────────────────────────────────────── */
+   reference var(--…) only - no hard-coded hex in JSX.
+   ----------------------------------------------------------------------------- */
 
 :root {
   --disp: 'Fraunces', serif;
@@ -14,68 +14,81 @@
   --mono: 'JetBrains Mono', monospace;
 }
 
+/* "Black & Pink" - a bright, soft pink accent on a NEUTRAL near-black. The panels
+   are neutral grey (R≈G≈B), NOT warm - warm-tinted panels over black were what read
+   brown before. Pink ambient glows top-right + bottom-left, pushed brighter so the
+   pink pops. Values only - every custom-property NAME unchanged. Map cells distinct:
+   free (very dark) / unknown (mid grey) / wall (near-white). Alerts use --coral (a
+   red rose), distinct from the pink accent. */
 [data-theme='dark'] {
-  --bg: #13161b;
-  --bg-grad: radial-gradient(ellipse 90% 70% at 80% -10%, rgba(45, 212, 191, 0.08), transparent 55%),
-    radial-gradient(ellipse 70% 60% at 0% 110%, rgba(248, 113, 113, 0.05), transparent 50%);
-  --panel: rgba(27, 31, 39, 0.62);
-  --panel-solid: #1b1f27;
-  --panel-2: rgba(32, 37, 46, 0.6);
-  --inset: #0f1216;
-  --line: #2a313b;
-  --hair: #222831;
-  --txt: #e7eaee;
-  --mid: #9aa4b1;
-  --dim: #646e7b;
-  --accent: #2dd4bf;
-  --accent-soft: rgba(45, 212, 191, 0.14);
-  --accent-ink: #2dd4bf;
-  --coral: #fb7185;
-  --gold: #fbbf24;
-  --sky: #56b6e0;
-  --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
-  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
-  --map-unknown: #262d37;
-  --map-free: #161b22;
-  --map-wall: #dfe6ec;
-  --grid-dot: rgba(255, 255, 255, 0.028);
-  --grid-line: rgba(255, 255, 255, 0.018);
-  --skel-sheen: rgba(255, 255, 255, 0.07);
-  --glass-edge: rgba(255, 255, 255, 0.09);
-  --glass-hi: rgba(255, 255, 255, 0.06);
+  --bg: #0a0a0c;
+  --bg-grad: radial-gradient(ellipse 95% 75% at 84% -14%, rgba(255, 138, 201, 0.2), transparent 58%),
+    radial-gradient(ellipse 80% 66% at -4% 114%, rgba(255, 150, 206, 0.13), transparent 56%);
+  --panel: rgba(20, 20, 25, 0.62);
+  --panel-solid: #141419;
+  --panel-2: rgba(26, 26, 33, 0.6);
+  --inset: #070709;
+  --line: #2a2731;
+  --hair: #211f28;
+  --txt: #f3eff2;
+  --mid: #a9a2ac;
+  --dim: #756e78;
+  --accent: #ff8ec9;
+  --accent-soft: rgba(255, 142, 201, 0.18);
+  --accent-ink: #ffaedb;
+  --coral: #ff7a8e;
+  --gold: #f3c969;
+  --sky: #8ab6f0;
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.42);
+  --map-unknown: #2a2731;
+  --map-free: #101015;
+  --map-wall: #f1eaef;
+  --grid-dot: rgba(255, 190, 222, 0.035);
+  --grid-line: rgba(255, 190, 222, 0.022);
+  --skel-sheen: rgba(255, 215, 234, 0.07);
+  --glass-edge: rgba(255, 215, 234, 0.1);
+  --glass-hi: rgba(255, 220, 238, 0.06);
+  --card-edge: rgba(255, 215, 234, 0.13);
   --glass-blur: 16px;
   color-scheme: dark;
 }
 
+/* "Soft Blue & Pink" - soft blue accent on a clear blue-and-pink pastel wash. The
+   two ambient glows are strong and saturated so the blue (top-right) and pink
+   (bottom-left) read unmistakably; the base is a faint lilac and the cards are a bit
+   more translucent so the wash tints them. Map cells: free (lightest) / unknown
+   (light blue-grey) / wall (dark). */
 [data-theme='light'] {
-  --bg: #f4f1ea;
-  --bg-grad: radial-gradient(ellipse 90% 70% at 80% -10%, rgba(13, 148, 136, 0.1), transparent 55%),
-    radial-gradient(ellipse 70% 60% at 0% 110%, rgba(244, 114, 128, 0.07), transparent 50%);
-  --panel: rgba(255, 254, 251, 0.58);
-  --panel-solid: #fffefb;
-  --panel-2: rgba(250, 247, 240, 0.5);
-  --inset: #eee9df;
-  --line: #e3ddd0;
-  --hair: #ece7db;
-  --txt: #23282d;
-  --mid: #5f6b76;
-  --dim: #9aa3ad;
-  --accent: #0d9488;
-  --accent-soft: rgba(13, 148, 136, 0.12);
-  --accent-ink: #0b7c72;
-  --coral: #e5566b;
-  --gold: #d9941a;
-  --sky: #2f86c4;
-  --shadow: 0 10px 34px rgba(60, 55, 40, 0.12);
-  --shadow-sm: 0 2px 12px rgba(60, 55, 40, 0.08);
-  --map-unknown: #e0dacd;
-  --map-free: #f4f1ea;
-  --map-wall: #3a4048;
-  --grid-dot: rgba(40, 35, 25, 0.05);
-  --grid-line: rgba(40, 35, 25, 0.035);
+  --bg: #f4f1f8;
+  --bg-grad: radial-gradient(ellipse 100% 82% at 86% -16%, rgba(120, 160, 250, 0.32), transparent 62%),
+    radial-gradient(ellipse 88% 72% at -6% 116%, rgba(250, 148, 198, 0.32), transparent 60%);
+  --panel: rgba(255, 255, 255, 0.74);
+  --panel-solid: #ffffff;
+  --panel-2: rgba(247, 242, 251, 0.66);
+  --inset: #eceaf6;
+  --line: #dde0f1;
+  --hair: #e7e4f3;
+  --txt: #232734;
+  --mid: #5c6378;
+  --dim: #97a0b5;
+  --accent: #5b7fe4;
+  --accent-soft: rgba(91, 127, 228, 0.16);
+  --accent-ink: #3f63c8;
+  --coral: #e75a86;
+  --gold: #c0851a;
+  --sky: #2f86cf;
+  --shadow: 0 3px 10px rgba(60, 60, 110, 0.09), 0 16px 38px rgba(70, 70, 120, 0.13);
+  --shadow-sm: 0 2px 10px rgba(60, 60, 110, 0.12);
+  --map-unknown: #d6dcef;
+  --map-free: #f4f4fc;
+  --map-wall: #333a4a;
+  --grid-dot: rgba(80, 90, 160, 0.05);
+  --grid-line: rgba(80, 90, 160, 0.035);
   --skel-sheen: rgba(255, 255, 255, 0.6);
-  --glass-edge: rgba(255, 255, 255, 0.7);
-  --glass-hi: rgba(255, 255, 255, 0.85);
+  --glass-edge: rgba(255, 255, 255, 0.72);
+  --glass-hi: rgba(255, 255, 255, 0.9);
+  --card-edge: rgba(70, 80, 150, 0.2);
   --glass-blur: 16px;
   color-scheme: light;
 }
@@ -246,7 +259,7 @@ header {
   background: var(--panel);
   -webkit-backdrop-filter: blur(10px) saturate(1.4);
   backdrop-filter: blur(10px) saturate(1.4);
-  border: 1px solid var(--glass-edge);
+  border: 1px solid var(--card-edge);
   box-shadow: var(--shadow-sm), inset 0 1px 0 var(--glass-hi);
 }
 .pill .k {
@@ -362,8 +375,8 @@ main {
   display: grid;
   gap: 14px;
   grid-template-columns: 1.55fr 1fr;
-  grid-template-rows: 1fr 1fr 196px;
-  grid-template-areas: 'map cam' 'map tel' 'strip strip';
+  grid-template-rows: 1fr 1fr 1fr 188px;
+  grid-template-areas: 'map cam' 'map tel' 'radar diag' 'strip strip';
 }
 .card {
   background: var(--panel);
@@ -407,6 +420,12 @@ main {
 }
 #c-tel {
   grid-area: tel;
+}
+#c-radar {
+  grid-area: radar;
+}
+#c-diag {
+  grid-area: diag;
 }
 #c-strip {
   grid-area: strip;
@@ -455,6 +474,250 @@ main {
   inset: 0;
   width: 100%;
   height: 100%;
+  display: block;
+  touch-action: none; /* MapCanvas owns pan/zoom/rotate - don't let the browser scroll/zoom */
+}
+
+/* ---------- navigable map stage (docks in the card, morphs to fullscreen) ---- */
+/* The stage is portaled to <body> and position:fixed; JS sets top/left/width/height
+   to the card slot (docked) or the viewport (expanded). .morph scopes the grow/
+   shrink transition to the toggle so dock-tracking (resize/scroll) stays instant. */
+.map-stage {
+  position: fixed;
+  z-index: 40;
+  overflow: hidden;
+  background: var(--inset);
+  will-change: top, left, width, height;
+}
+.map-stage.morph {
+  transition:
+    top 0.34s cubic-bezier(0.2, 0.8, 0.2, 1),
+    left 0.34s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.34s cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.map-stage[data-expanded='true'] {
+  z-index: 1000;
+}
+
+/* glass camera buttons */
+.map-btn {
+  position: absolute;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--card-edge);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(8px) saturate(1.3);
+  backdrop-filter: blur(8px) saturate(1.3);
+  color: var(--txt);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.16s, color 0.16s, transform 0.08s, border-color 0.16s;
+}
+.map-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.map-btn:active {
+  transform: scale(0.92);
+}
+.map-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.map-expand,
+.map-close {
+  top: 12px;
+  right: 12px;
+}
+.map-controls {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--card-edge);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow: var(--shadow);
+}
+.map-controls .map-btn {
+  position: static;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.map-controls .map-btn:hover {
+  background: var(--accent-soft);
+}
+.map-ctl-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--card-edge);
+  margin: 0 2px;
+}
+
+/* ---------- layers control (button + popover, top-right of the map) ---------- */
+.map-layers {
+  position: absolute;
+  z-index: 6;
+  top: 12px;
+  right: 58px;
+}
+.map-layers .map-btn {
+  position: static;
+}
+.layers-pop {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  min-width: 170px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--card-edge);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--glass-hi);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.layers-pop-title {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 600;
+  padding: 2px 6px 6px;
+}
+.layers-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--txt);
+}
+.layers-row:hover {
+  background: var(--accent-soft);
+}
+.layers-row input {
+  accent-color: var(--accent);
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+.layers-download {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--card-edge);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-family: var(--ui);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s;
+}
+.layers-download:hover {
+  background: var(--accent);
+  color: var(--panel-solid);
+}
+
+/* ---------- LiDAR radar ---------- */
+.radar-body {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+.radar-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------- topic-health diagnostics ---------- */
+.diag-body {
+  flex: 1;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  min-height: 0;
+  overflow: hidden;
+}
+.diag-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11.5px;
+}
+.diag-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.diag-dot.ok {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+.diag-dot.bad {
+  background: var(--dim);
+}
+.diag-name {
+  font-family: var(--mono);
+  color: var(--txt);
+}
+.diag-type {
+  color: var(--dim);
+  font-size: 10px;
+}
+.diag-hz {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--mid);
+}
+.map-legend.in-stage {
+  position: absolute;
+  z-index: 4;
+  left: 16px;
+  bottom: 16px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--card-edge);
+  border-radius: 12px;
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 .mhud {
   position: absolute;
@@ -636,24 +899,27 @@ main {
   justify-content: center;
 }
 .stat .k {
-  font-size: 9.5px;
-  letter-spacing: 1.4px;
+  font-size: 9px;
+  letter-spacing: 1.7px;
   color: var(--dim);
   text-transform: uppercase;
   font-weight: 600;
 }
 .stat .v {
   font-family: var(--mono);
-  font-size: 25px;
-  font-weight: 500;
+  font-size: 31px;
+  font-weight: 600;
   color: var(--txt);
-  line-height: 1.05;
-  margin-top: 3px;
+  line-height: 1;
+  letter-spacing: -0.8px;
+  margin-top: 5px;
+  font-variant-numeric: tabular-nums;
 }
 .stat .v small {
   font-size: 11px;
   color: var(--dim);
-  font-weight: 400;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 .stat .v.accent {
   color: var(--accent);
@@ -1020,7 +1286,7 @@ main {
   background: var(--panel);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
   backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
-  border: 1px solid var(--glass-edge);
+  border: 1px solid var(--card-edge);
   box-shadow: var(--shadow), inset 0 1px 0 var(--glass-hi);
   opacity: 0;
   transform: translateY(10px);
@@ -1050,6 +1316,12 @@ main > .glow-card:nth-child(3) {
 }
 main > .glow-card:nth-child(4) {
   animation-delay: 0.26s;
+}
+main > .glow-card:nth-child(5) {
+  animation-delay: 0.33s;
+}
+main > .glow-card:nth-child(6) {
+  animation-delay: 0.4s;
 }
 #c-strip > .border-glow-inner {
   flex-direction: row;
@@ -1288,10 +1560,13 @@ main > .glow-card:nth-child(4) {
     height: auto;
     grid-template-columns: 1fr;
     grid-template-rows: none;
-    grid-template-areas: 'map' 'cam' 'tel' 'strip';
+    grid-template-areas: 'map' 'cam' 'tel' 'radar' 'diag' 'strip';
   }
   #c-map {
     min-height: 360px;
+  }
+  #c-radar {
+    min-height: 300px;
   }
   #c-strip {
     flex-direction: column;

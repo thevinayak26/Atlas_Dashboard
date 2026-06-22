@@ -1,5 +1,5 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// useRobotData.js — the telemetry aggregation hook (spec §6/§7/§10).
+// -----------------------------------------------------------------------------
+// useRobotData.js - the telemetry aggregation hook (spec §6/§7/§10).
 //
 // Subscribes ONCE to the high-rate motion/health topics that the text tiles need
 // (/odom, /imu/data, /sys_stats) and accumulates the latest values in refs. A
@@ -8,10 +8,10 @@
 // every frame"). The map keeps its own raw subscriptions for 60 fps canvas work;
 // nothing here is subscribed twice.
 //
-// Everything returned is derived from REAL messages — no synthetic numbers. When
+// Everything returned is derived from REAL messages - no synthetic numbers. When
 // a topic is silent the corresponding field stays null/false so tiles can show an
-// honest "—" instead of a fake reading (Golden Rule 1, spec §1).
-// ─────────────────────────────────────────────────────────────────────────────
+// honest "-" instead of a fake reading (Golden Rule 1, spec §1).
+// -----------------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 import * as ROSLIB from 'roslib';
 import { TOPICS } from './topics';
@@ -127,7 +127,7 @@ export function useRobotData(ros, status) {
         last.current.mem = j.mem ?? null;
         last.current.uptime = j.uptime_s ?? null;
       } catch {
-        /* non-JSON /sys_stats payload — ignore rather than crash a tile */
+        /* non-JSON /sys_stats payload - ignore rather than crash a tile */
       }
     });
 

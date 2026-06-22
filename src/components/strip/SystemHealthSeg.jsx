@@ -1,11 +1,11 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// SystemHealthSeg.jsx — Link / Scan / CPU / Nodes, all from real sources:
+// -----------------------------------------------------------------------------
+// SystemHealthSeg.jsx - Link / Scan / CPU / Nodes, all from real sources:
 //   Link   round-trip latency of a /rosapi/nodes call (useRosHealth)
 //   Scan   measured /scan rate (reported by MapCanvas)
 //   CPU    parsed from /sys_stats JSON (useRobotData)
 //   Nodes  live ROS node count from /rosapi/nodes
-// Missing sources render "—" and a muted bar, never a fabricated value.
-// ─────────────────────────────────────────────────────────────────────────────
+// Missing sources render "-" and a muted bar, never a fabricated value.
+// -----------------------------------------------------------------------------
 import Skeleton from '../Skeleton';
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -34,7 +34,7 @@ export default function SystemHealthSeg({ latencyMs, scanHz, cpu, nodeCount, hea
             </div>
             {val(
               <span className={'v' + (latencyMs != null ? ' ok' : '')}>
-                {latencyMs != null ? latencyMs + ' ms' : '—'}
+                {latencyMs != null ? latencyMs + ' ms' : '-'}
               </span>
             )}
           </div>
@@ -43,21 +43,21 @@ export default function SystemHealthSeg({ latencyMs, scanHz, cpu, nodeCount, hea
             <div className="hbar">
               <i style={{ width: scanPct + '%' }} />
             </div>
-            {val(<span className="v">{scanHz != null ? scanHz.toFixed(1) + ' Hz' : '—'}</span>)}
+            {val(<span className="v">{scanHz != null ? scanHz.toFixed(1) + ' Hz' : '-'}</span>)}
           </div>
           <div className="hrow">
             <span className="k">CPU</span>
             <div className="hbar">
               <i className={cpuCls} style={{ width: cpuPct + '%' }} />
             </div>
-            {val(<span className="v">{cpu != null ? Math.round(cpu) + '%' : '—'}</span>)}
+            {val(<span className="v">{cpu != null ? Math.round(cpu) + '%' : '-'}</span>)}
           </div>
           <div>
             <div className="hrow" style={{ marginBottom: 3 }}>
               <span className="k">Nodes</span>
               {val(
                 <span className={'v' + (nodeCount ? ' ok' : '')}>
-                  {nodeCount != null ? `${nodeCount} up` : '—'}
+                  {nodeCount != null ? `${nodeCount} up` : '-'}
                 </span>
               )}
             </div>

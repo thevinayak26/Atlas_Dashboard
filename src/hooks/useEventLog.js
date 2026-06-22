@@ -1,11 +1,11 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// useEventLog.js — the Event Stream tile, driven by REAL state transitions.
+// -----------------------------------------------------------------------------
+// useEventLog.js - the Event Stream tile, driven by REAL state transitions.
 //
 // The mockup invented random log lines; that would be dishonest on a live
 // console (spec §1). Instead we watch the actual signals and emit an event only
 // when something genuinely changes: link up/down, coverage crossing a milestone,
 // and the robot starting or stopping. Every line corresponds to a real event.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useEffect, useRef, useState } from 'react';
 
 const MAX = 7;
@@ -31,9 +31,9 @@ export function useEventLog({ status, coverage, moving }) {
   useEffect(() => {
     const p = prev.current;
     if (p.status === status) return;
-    if (status === 'connected') push('ok', 'rosbridge linked — telemetry live');
+    if (status === 'connected') push('ok', 'rosbridge linked - telemetry live');
     else if (p.status === 'connected' && (status === 'down' || status === 'reconnecting'))
-      push('alert', 'Link lost — reconnecting');
+      push('alert', 'Link lost - reconnecting');
     p.status = status;
     if (status !== 'connected') {
       p.milestone = 0;
@@ -56,7 +56,7 @@ export function useEventLog({ status, coverage, moving }) {
     if (status !== 'connected') return;
     const p = prev.current;
     if (p.moving === moving) return;
-    if (p.moving !== null) push(moving ? 'ok' : 'warn', moving ? 'Resumed exploration' : 'Robot idle — holding position');
+    if (p.moving !== null) push(moving ? 'ok' : 'warn', moving ? 'Resumed exploration' : 'Robot idle - holding position');
     p.moving = moving;
   }, [moving, status]);
 

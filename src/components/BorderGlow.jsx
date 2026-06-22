@@ -1,12 +1,12 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// BorderGlow.jsx — vendored from React Bits. A card shell whose colored mesh
+// -----------------------------------------------------------------------------
+// BorderGlow.jsx - vendored from React Bits. A card shell whose colored mesh
 // border + outer glow track the pointer and bloom as it nears an edge. Used here
 // as the dashboard card shell (see GlowCard.jsx), recoloured to the ATLAS palette
 // (teal / sky / gold) rather than the stock purple-pink-cyan.
 //
 // Local change from upstream: added an `id` passthrough so the grid-area ids
 // (#c-map …) land on the outer element.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import { useRef, useCallback, useEffect } from 'react';
 import './BorderGlow.css';
 

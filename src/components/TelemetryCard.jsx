@@ -1,10 +1,10 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// TelemetryCard.jsx — Coverage / Frontiers / Distance / Velocity.
+// -----------------------------------------------------------------------------
+// TelemetryCard.jsx - Coverage / Frontiers / Distance / Velocity.
 // Coverage + frontiers are computed from the real /map; distance is integrated
 // from /odom; velocity is the /odom twist magnitude. While the data hasn't
 // arrived (loading, or value still null) a shimmer skeleton shows instead of a
 // number.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 import Skeleton from './Skeleton';
 import GlowCard from './GlowCard';
 

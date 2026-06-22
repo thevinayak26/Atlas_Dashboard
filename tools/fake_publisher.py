@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# ─────────────────────────────────────────────────────────────────────────────
-# fake_publisher.py — dev-time stand-in for the rosbag / real robot.
+# -----------------------------------------------------------------------------
+# fake_publisher.py - dev-time stand-in for the rosbag / real robot.
 #
 # Publishes the topics that are LIVE at the end of Week 3 (DASHBOARD_BUILD_SPEC
 # §1/§6) with *correct message shapes*, so the dashboard can be built and the
@@ -23,9 +23,11 @@
 #   /imu/data   sensor_msgs/Imu           (~20 Hz)
 #   /robot_pose geometry_msgs/PoseStamped (map frame, ~15 Hz)  ← stands in for §5a
 #   /sys_stats  std_msgs/String (JSON)    (1 Hz)                ← stands in for §5b
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 import json
 import math
+import os
+import sys
 
 import rclpy
 from rclpy.node import Node
@@ -44,13 +46,24 @@ from nav_msgs.msg import OccupancyGrid, Odometry, MapMetaData
 from sensor_msgs.msg import LaserScan, Imu
 from tf2_ros import TransformBroadcaster
 
-# ── Room / map model (matches the mockup's room so visuals line up) ──────────
+# -- Room / map model (matches the mockup's room so visuals line up) ----------
 RES = 0.05                      # m per cell
 ROOM = dict(x=-3.2, y=-2.4, w=6.4, h=4.8)
 GW = int(round(ROOM["w"] / RES))   # 128
 GH = int(round(ROOM["h"] / RES))   # 96
 ORIGIN_X = ROOM["x"]
 ORIGIN_Y = ROOM["y"]
+
+# -- Decode / orientation test mode -------------------------------------------
+# Default keeps the original "robot explores, the map fills in slowly" behaviour.
+# `--full` (or env FAKE_FULL_MAP=1) instead latches a FULLY-revealed map at once,
+# with a bold asymmetric "F" landmark + one unknown pocket, so any dashboard
+# decode/orientation bug (mirror, bad Y-flip, row-stride shear) is obvious at a
+# glance - no waiting for the explore loop. The robot/scan/pose still move either
+# way; only the /map reveal differs.
+FULL_MAP = ("--full" in sys.argv) or (
+    os.environ.get("FAKE_FULL_MAP", "").lower() not in ("", "0", "false", "no")
+)
 
 # A waypoint loop the robot drives (world coords, metres).
 PATH = [(-2.6, -1.8), (2.6, -1.8), (2.6, 1.8),
@@ -69,11 +82,29 @@ def in_wall(wx: float, wy: float) -> bool:
     return edge or divider
 
 
+def in_glyph(wx: float, wy: float) -> bool:
+    """A bold 'F' in the upper-LEFT interior - an unmistakable orientation key.
+    Correct decode → a normal 'F' (stem on the left, bars to the right, top bar
+    up). A horizontal mirror flips the bars; a bad Y-flip drops it to the lower
+    half / upside-down; a row-stride bug shears it. World metres."""
+    stem = (-2.60 <= wx <= -2.42) and (0.40 <= wy <= 2.00)   # vertical spine
+    top  = (-2.60 <= wx <= -1.70) and (1.82 <= wy <= 2.00)   # top arm
+    mid  = (-2.60 <= wx <= -2.02) and (1.05 <= wy <= 1.23)   # middle arm (shorter)
+    return stem or top or mid
+
+
+def in_unknown_pocket(wx: float, wy: float) -> bool:
+    """A right-of-centre rectangle kept UNKNOWN in --full mode, so all three cell
+    types (wall/free/unknown) and frontier detection are exercised immediately,
+    and so the map is asymmetric on the right as well as the left."""
+    return (0.90 <= wx <= 2.00) and (-0.20 <= wy <= 0.90)
+
+
 class FakePublisher(Node):
     def __init__(self):
         super().__init__("fake_publisher")
 
-        # /map is latched (transient-local) — matches slam_toolbox & spec §10.
+        # /map is latched (transient-local) - matches slam_toolbox & spec §10.
         map_qos = QoSProfile(
             depth=1,
             reliability=QoSReliabilityPolicy.RELIABLE,
@@ -83,6 +114,10 @@ class FakePublisher(Node):
         self.pub_map = self.create_publisher(OccupancyGrid, "/map", map_qos)
         self.pub_scan = self.create_publisher(LaserScan, "/scan", 10)
         self.pub_odom = self.create_publisher(Odometry, "/odom", 20)
+        # EKF fused output the dashboard subscribes to (see src/ros/topics.js). We
+        # publish it alongside /odom so the offline harness exercises the real topic.
+        self.pub_odom_filtered = self.create_publisher(
+            Odometry, "/odometry/filtered", 20)
         self.pub_imu = self.create_publisher(Imu, "/imu/data", 20)
         self.pub_pose = self.create_publisher(PoseStamped, "/robot_pose", 10)
         self.pub_sys = self.create_publisher(String, "/sys_stats", 10)
@@ -94,8 +129,19 @@ class FakePublisher(Node):
             for gx in range(GW):
                 wx = ORIGIN_X + (gx + 0.5) * RES
                 wy = ORIGIN_Y + (gy + 0.5) * RES
-                self.truth[gy * GW + gx] = 100 if in_wall(wx, wy) else 0
+                occ = in_wall(wx, wy) or in_glyph(wx, wy)
+                self.truth[gy * GW + gx] = 100 if occ else 0
         self.grid = [-1] * (GW * GH)
+
+        # --full: reveal the whole truth map at once (minus one unknown pocket),
+        # so decode/orientation is judgeable instantly. reveal() is a no-op then.
+        if FULL_MAP:
+            for gy in range(GH):
+                for gx in range(GW):
+                    wx = ORIGIN_X + (gx + 0.5) * RES
+                    wy = ORIGIN_Y + (gy + 0.5) * RES
+                    if not in_unknown_pocket(wx, wy):
+                        self.grid[gy * GW + gx] = self.truth[gy * GW + gx]
 
         # Motion state
         self.seg = 0            # current path segment index
@@ -114,19 +160,22 @@ class FakePublisher(Node):
         self.create_timer(1.00, self.publish_map)   # 1 Hz map
         self.create_timer(1.00, self.publish_sys)   # 1 Hz sys_stats
         self.publish_map()                          # latch one immediately
+        mode = ("FULL static map + 'F' landmark + unknown pocket" if FULL_MAP
+                else "explore (map fills in as the robot drives)")
         self.get_logger().info(
-            f"fake_publisher up — room {GW}x{GH} @ {RES} m. "
-            f"Publishing /map /scan /odom /imu/data /robot_pose /sys_stats"
+            f"fake_publisher up - grid {GW}x{GH} (w x h, non-square) @ {RES} m, "
+            f"mode: {mode}. Publishing /map /scan /odom /imu/data /robot_pose "
+            f"/sys_stats. Tip: pass --full for an instant decode/orientation test."
         )
 
-    # ── header helper ──
+    # -- header helper --
     def header(self, frame: str) -> Header:
         h = Header()
         h.stamp = self.get_clock().now().to_msg()
         h.frame_id = frame
         return h
 
-    # ── 20 Hz: advance motion, publish odom + imu + pose + TF, reveal map ──
+    # -- 20 Hz: advance motion, publish odom + imu + pose + TF, reveal map --
     def step(self):
         speed = 0.18  # m/s nominal
         ax, ay = PATH[self.seg]
@@ -164,6 +213,8 @@ class FakePublisher(Node):
 
     def reveal(self):
         """Mark cells near the robot as discovered (sensor coverage)."""
+        if FULL_MAP:
+            return  # map is already fully latched; keep it static
         R = 1.6
         gx0 = max(0, int((self.x - R - ORIGIN_X) / RES))
         gx1 = min(GW, int((self.x + R - ORIGIN_X) / RES) + 1)
@@ -187,6 +238,7 @@ class FakePublisher(Node):
         msg.twist.twist.linear = Vector3(x=self.v, y=0.0, z=0.0)
         msg.twist.twist.angular = Vector3(x=0.0, y=0.0, z=self.gyro_z)
         self.pub_odom.publish(msg)
+        self.pub_odom_filtered.publish(msg)  # same shape, on the EKF topic name
 
     def publish_imu(self):
         msg = Imu()
