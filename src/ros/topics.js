@@ -33,6 +33,17 @@ export const TOPICS = {
   imu:        { name: '/imu/data',   type: 'sensor_msgs/Imu',           status: 'live' },
   robotPose:  { name: '/robot_pose', type: 'geometry_msgs/PoseStamped', status: 'node' },  // §5a
   sysStats:   { name: '/sys_stats',  type: 'std_msgs/String',           status: 'node' },  // §5b (JSON)
+  // Nav2 global plan - drawn as the planned route overlay on the map (pose-free,
+  // it's already in the map frame). Only shows when Nav2 is navigating to a goal.
+  plan:       { name: '/plan',       type: 'nav_msgs/Path',             status: 'live' },
+  // Manual WASD teleop publishes here (the same topic teleop_twist_keyboard uses);
+  // the robot's velocity bridge already subscribes to /cmd_vel.
+  cmdVel:     { name: '/cmd_vel',    type: 'geometry_msgs/Twist',       status: 'live' },
+  // TF tree - the map overlay composes map->odom->base_link from these to place the
+  // robot + LiDAR scan in the map frame (so the scan shows ON the map without needing
+  // a separate /robot_pose publisher). /tf_static is latched.
+  tf:         { name: '/tf',         type: 'tf2_msgs/TFMessage',        status: 'live' },
+  tfStatic:   { name: '/tf_static',  type: 'tf2_msgs/TFMessage',        status: 'live' },
 
   // Not yet available - render honest "awaiting/offline" placeholders (§1, §4).
   camera:         { name: '/camera/image_raw',  type: 'sensor_msgs/Image', status: 'later' },
@@ -44,4 +55,12 @@ export const TOPICS = {
 export const SUB_OPTS = {
   map:  { throttle_rate: 250, queue_length: 1 },
   scan: { throttle_rate: 100, queue_length: 1 },
+  plan: { throttle_rate: 200, queue_length: 1 },
+};
+
+// SLAM-toolbox map-save service (saves <name>.pgm + <name>.yaml on the robot). If
+// the stack isn't slam_toolbox, point this at the relevant SaveMap service instead.
+export const SAVE_MAP_SERVICE = {
+  name: '/slam_toolbox/save_map',
+  type: 'slam_toolbox/SaveMap',
 };

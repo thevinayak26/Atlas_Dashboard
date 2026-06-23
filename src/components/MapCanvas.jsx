@@ -43,7 +43,7 @@ const TAP_PX = 8;        // pointer travel under this (and quick) = a tap, not a
 const TAP_MS = 350;
 
 // Layer visibility defaults (overridden by the persisted set passed from App).
-const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, grid: false };
+const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, path: true, grid: false };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -110,7 +110,10 @@ export default function MapCanvas({
     let mapMsg = null;     // last raw /map (for re-raster on theme change)
     let meta = null;       // { width, height, resolution, originX, originY, known }
     let scan = null;       // latest LaserScan
-    let pose = null;       // latest { x, y, yaw }
+    let pose = null;       // effective robot pose { x, y, yaw } in the MAP frame
+    let lastTfPose = 0;    // when TF last yielded a pose (TF is preferred source)
+    const tfTree = new Map(); // child frame -> { parent, x, y, yaw } (planar)
+    let plan = [];         // [[wx, wy], …] Nav2 global path (map frame)
     let frontiers = [];    // [[wx, wy], …] cluster centroids
     let coverage = null;   // %
     let frontierCount = null;
@@ -130,6 +133,7 @@ export default function MapCanvas({
       accent: cssVar('--accent'),
       sky: cssVar('--sky'),
       gold: cssVar('--gold'),
+      path: cssVar('--path'),
       cardEdge: cssVar('--card-edge'),
       dim: cssVar('--dim'),
     });
@@ -435,7 +439,7 @@ export default function MapCanvas({
       lastT = T;
       const L = layersRef.current;
       if (T && bitmap) {
-        const { accent, sky, gold } = palette;
+        const { accent, sky, gold, path: pathCol } = palette;
 
         // The grid bitmap, under the full translate·rotate·scale camera.
         ctx.save();
@@ -535,6 +539,41 @@ export default function MapCanvas({
           ctx.stroke();
         }
 
+        // Nav2 global plan - the route the robot intends to take (map frame, so
+        // pose-free). Drawn as a bright green line with a soft halo + a goal dot,
+        // distinct from the pink "where it's been" trail.
+        if (plan.length > 1 && L.path) {
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = pathCol + '40';
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          for (let i = 0; i < plan.length; i++) {
+            const [sx, sy] = T.toScreen(plan[i][0], plan[i][1]);
+            if (i) ctx.lineTo(sx, sy); else ctx.moveTo(sx, sy);
+          }
+          ctx.stroke();
+          ctx.strokeStyle = pathCol;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (let i = 0; i < plan.length; i++) {
+            const [sx, sy] = T.toScreen(plan[i][0], plan[i][1]);
+            if (i) ctx.lineTo(sx, sy); else ctx.moveTo(sx, sy);
+          }
+          ctx.stroke();
+          // goal dot at the end of the plan
+          const [gx, gy] = T.toScreen(plan[plan.length - 1][0], plan[plan.length - 1][1]);
+          ctx.fillStyle = pathCol;
+          ctx.beginPath();
+          ctx.arc(gx, gy, 4, 0, 7);
+          ctx.fill();
+          ctx.strokeStyle = pathCol + '66';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(gx, gy, 8, 0, 7);
+          ctx.stroke();
+        }
+
         // frontier markers (toggleable)
         if (L.frontiers) for (const [fx, fy] of frontiers) {
           const [sx, sy] = T.toScreen(fx, fy);
@@ -609,6 +648,56 @@ export default function MapCanvas({
       raf = requestAnimationFrame(draw);
     };
 
+    // ---- pose source: prefer TF (map->base_link), fall back to /robot_pose ----
+    // The on-map LiDAR + robot marker need the robot's pose in the MAP frame. The
+    // robot doesn't publish /robot_pose, but it does broadcast TF (slam_toolbox
+    // map->odom, EKF odom->base_link), so we compose that chain ourselves.
+    const norm = (f) => (f || '').replace(/^\//, '');
+    const setTfs = (transforms) => {
+      for (const t of transforms || []) {
+        const tr = t.transform.translation;
+        tfTree.set(norm(t.child_frame_id), {
+          parent: norm(t.header.frame_id),
+          x: tr.x, y: tr.y, yaw: quatToYaw(t.transform.rotation),
+        });
+      }
+    };
+    const lookupPose = (target, root) => {
+      const chain = [];
+      let f = norm(target);
+      let guard = 0;
+      while (f !== root) {
+        const node = tfTree.get(f);
+        if (!node || guard++ > 64) return null; // chain broken or cyclic
+        chain.push(node);
+        f = node.parent;
+      }
+      let X = 0, Y = 0, TH = 0; // compose root -> target
+      for (let i = chain.length - 1; i >= 0; i--) {
+        const n = chain[i];
+        const c = Math.cos(TH), s = Math.sin(TH);
+        X += c * n.x - s * n.y;
+        Y += s * n.x + c * n.y;
+        TH += n.yaw;
+      }
+      return { x: X, y: Y, yaw: TH };
+    };
+    const poseFromTf = () => {
+      for (const base of ['base_link', 'base_footprint']) {
+        const p = lookupPose(base, 'map');
+        if (p) return p;
+      }
+      return null;
+    };
+    const setPose = (p) => {
+      pose = p;
+      const lastPt = trail[trail.length - 1];
+      if (!lastPt || Math.hypot(p.x - lastPt[0], p.y - lastPt[1]) > 0.02) {
+        trail.push([p.x, p.y]);
+        if (trail.length > TRAIL_MAX) trail.shift();
+      }
+    };
+
     const mapTopic = new ROSLIB.Topic({
       ros, name: TOPICS.map.name, messageType: TOPICS.map.type, ...SUB_OPTS.map,
     });
@@ -617,6 +706,15 @@ export default function MapCanvas({
     });
     const poseTopic = new ROSLIB.Topic({
       ros, name: TOPICS.robotPose.name, messageType: TOPICS.robotPose.type,
+    });
+    const planTopic = new ROSLIB.Topic({
+      ros, name: TOPICS.plan.name, messageType: TOPICS.plan.type, ...SUB_OPTS.plan,
+    });
+    const tfTopic = new ROSLIB.Topic({
+      ros, name: TOPICS.tf.name, messageType: TOPICS.tf.type, throttle_rate: 50, queue_length: 1,
+    });
+    const tfStaticTopic = new ROSLIB.Topic({
+      ros, name: TOPICS.tfStatic.name, messageType: TOPICS.tfStatic.type,
     });
 
     mapTopic.subscribe((msg) => rasterize(msg));
@@ -631,14 +729,22 @@ export default function MapCanvas({
       scanRate.lastSeen = now;
     });
     poseTopic.subscribe((msg) => {
+      // Fallback only: skip if TF gave us a pose in the last ~1.2 s.
+      if (performance.now() - lastTfPose < 1200) return;
       const p = msg.pose.position;
-      pose = { x: p.x, y: p.y, yaw: quatToYaw(msg.pose.orientation) };
-      const lastPt = trail[trail.length - 1];
-      if (!lastPt || Math.hypot(p.x - lastPt[0], p.y - lastPt[1]) > 0.02) {
-        trail.push([p.x, p.y]);
-        if (trail.length > TRAIL_MAX) trail.shift();
-      }
+      setPose({ x: p.x, y: p.y, yaw: quatToYaw(msg.pose.orientation) });
     });
+    planTopic.subscribe((msg) => {
+      // nav_msgs/Path -> [[x,y], …]; an empty plan (goal reached/cancelled) clears it.
+      plan = (msg.poses || []).map((ps) => [ps.pose.position.x, ps.pose.position.y]);
+    });
+    const onTf = (msg) => {
+      setTfs(msg.transforms);
+      const p = poseFromTf();
+      if (p) { lastTfPose = performance.now(); setPose(p); }
+    };
+    tfTopic.subscribe(onTf);
+    tfStaticTopic.subscribe((msg) => setTfs(msg.transforms));
 
     canvas.style.cursor = 'grab';
     canvas.addEventListener('pointerdown', onPointerDown);
@@ -658,6 +764,9 @@ export default function MapCanvas({
       try { mapTopic.unsubscribe(); } catch { /* gone */ }
       try { scanTopic.unsubscribe(); } catch { /* gone */ }
       try { poseTopic.unsubscribe(); } catch { /* gone */ }
+      try { planTopic.unsubscribe(); } catch { /* gone */ }
+      try { tfTopic.unsubscribe(); } catch { /* gone */ }
+      try { tfStaticTopic.unsubscribe(); } catch { /* gone */ }
     };
   }, [ros, status, onStats, view]);
 

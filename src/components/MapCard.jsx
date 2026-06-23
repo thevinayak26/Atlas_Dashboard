@@ -14,6 +14,7 @@
 // -----------------------------------------------------------------------------
 import { useState, useRef, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
+import * as ROSLIB from 'roslib';
 import MapCanvas from './MapCanvas';
 import MapControls from './MapControls';
 import LayersControl from './LayersControl';
@@ -21,6 +22,7 @@ import GlassSurface from './GlassSurface';
 import GlowCard from './GlowCard';
 import Skeleton from './Skeleton';
 import { toDeg, signed } from '../lib/geometry';
+import { SAVE_MAP_SERVICE } from '../ros/topics';
 
 const LEGEND = [
   ['var(--map-wall)', 'Wall'],
@@ -29,12 +31,14 @@ const LEGEND = [
   ['var(--sky)', 'LiDAR'],
   ['var(--accent)', 'Robot'],
   ['var(--gold)', 'Frontier'],
+  ['var(--path)', 'Path'],
 ];
 
 export default function MapCard({
   ros, status, theme, pose, coverage, loading, onStats, layers, onLayersChange,
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [saveState, setSaveState] = useState('idle'); // idle | saving | ok | err
   // The camera, owned here so it survives expand/collapse and the toolbar can drive it.
   const viewRef = useRef({ cx: 0, cy: 0, k: 1, phi: 0, init: false });
   const slotRef = useRef(null);   // in-card placeholder the stage docks onto
@@ -55,6 +59,28 @@ export default function MapCard({
     a.download = `atlas-map-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
     a.click();
   }, []);
+
+  // "Save map" - ask SLAM toolbox to persist the map (<name>.pgm + .yaml) ON THE
+  // ROBOT. Fire-and-report: the button reflects saving/ok/err, then resets.
+  const saveMap = useCallback(() => {
+    if (!ros || status !== 'connected') {
+      setSaveState('err');
+      setTimeout(() => setSaveState('idle'), 2500);
+      return;
+    }
+    setSaveState('saving');
+    const svc = new ROSLIB.Service({ ros, name: SAVE_MAP_SERVICE.name, serviceType: SAVE_MAP_SERVICE.type });
+    const name = `atlas_map_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
+    const done = (ok) => {
+      setSaveState(ok ? 'ok' : 'err');
+      setTimeout(() => setSaveState('idle'), 2500);
+    };
+    try {
+      svc.callService({ name: { data: name } }, () => done(true), () => done(false));
+    } catch {
+      done(false);
+    }
+  }, [ros, status]);
 
   // Glue the fixed stage to the slot (docked) or the viewport (expanded). No
   // transition during dock-tracking (resize/scroll) - only the toggle morphs.
@@ -177,6 +203,8 @@ export default function MapCard({
         layers={layers}
         onChange={onLayersChange}
         onDownloadPng={downloadPng}
+        onSaveMap={saveMap}
+        saveState={saveState}
       />
       <MapControls
         expanded={expanded}

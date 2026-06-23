@@ -23,13 +23,13 @@ import MapCard from './components/MapCard';
 import CameraCard from './components/CameraCard';
 import TelemetryCard from './components/TelemetryCard';
 import StripCard from './components/StripCard';
-import RadarCard from './components/RadarCard';
 import DiagCard from './components/DiagCard';
+import TeleopControl from './components/TeleopControl';
 
 const EMPTY_MAP_STATS = { pose: null, coverage: null, frontiers: null, scanHz: null };
 
 // Map overlay visibility - persisted so a chosen view survives a reload.
-const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, grid: false };
+const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, path: true, grid: false };
 const LAYERS_KEY = 'atlas.mapLayers';
 function loadLayers() {
   try {
@@ -109,8 +109,8 @@ export default function App() {
           loading={loading}
           theme={theme}
         />
-        <RadarCard ros={ros} status={status} theme={theme} />
         <DiagCard
+          ros={ros}
           status={status}
           robot={robot}
           scanHz={scanHz}
@@ -119,6 +119,7 @@ export default function App() {
           theme={theme}
         />
       </main>
+      <TeleopControl ros={ros} status={status} />
     </>
   );
 }

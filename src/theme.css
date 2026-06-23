@@ -39,6 +39,7 @@
   --coral: #ff7a8e;
   --gold: #f3c969;
   --sky: #8ab6f0;
+  --path: #34d399;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
   --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.42);
   --map-unknown: #2a2731;
@@ -54,41 +55,45 @@
   color-scheme: dark;
 }
 
-/* "Soft Blue & Pink" - soft blue accent on a clear blue-and-pink pastel wash. The
-   two ambient glows are strong and saturated so the blue (top-right) and pink
-   (bottom-left) read unmistakably; the base is a faint lilac and the cards are a bit
-   more translucent so the wash tints them. Map cells: free (lightest) / unknown
-   (light blue-grey) / wall (dark). */
+/* "Pink & Sky" - a true two-tone pastel keyed to the bedroom reference where a pink
+   wall meets a sky-blue wall. The page wash is literally split: a big SKY-BLUE glow
+   top-right and a big SOFT-PINK glow bottom-left over a warm pink-white base, meeting
+   in a soft lilac middle. PINK is the primary accent (robot marker, bars, values,
+   toggles, dots); SKY-BLUE is the secondary (--sky: the LiDAR scan/radar + the map's
+   unknown cells + the blue glow). A red --coral keeps alerts distinct from the pink
+   accent. Map cells: free (lightest warm) / unknown (light blue-lilac) / wall (slate). */
 [data-theme='light'] {
-  --bg: #f4f1f8;
-  --bg-grad: radial-gradient(ellipse 100% 82% at 86% -16%, rgba(120, 160, 250, 0.32), transparent 62%),
-    radial-gradient(ellipse 88% 72% at -6% 116%, rgba(250, 148, 198, 0.32), transparent 60%);
-  --panel: rgba(255, 255, 255, 0.74);
+  --bg: #f7eef4;
+  --bg-grad: radial-gradient(ellipse 98% 88% at 93% -12%, rgba(120, 196, 236, 0.62), transparent 56%),
+    radial-gradient(ellipse 98% 88% at 5% 114%, rgba(246, 166, 201, 0.66), transparent 56%),
+    radial-gradient(ellipse 62% 52% at 50% 48%, rgba(250, 214, 232, 0.22), transparent 72%);
+  --panel: rgba(255, 255, 255, 0.70);
   --panel-solid: #ffffff;
-  --panel-2: rgba(247, 242, 251, 0.66);
-  --inset: #eceaf6;
-  --line: #dde0f1;
-  --hair: #e7e4f3;
-  --txt: #232734;
-  --mid: #5c6378;
-  --dim: #97a0b5;
-  --accent: #5b7fe4;
-  --accent-soft: rgba(91, 127, 228, 0.16);
-  --accent-ink: #3f63c8;
-  --coral: #e75a86;
-  --gold: #c0851a;
-  --sky: #2f86cf;
-  --shadow: 0 3px 10px rgba(60, 60, 110, 0.09), 0 16px 38px rgba(70, 70, 120, 0.13);
-  --shadow-sm: 0 2px 10px rgba(60, 60, 110, 0.12);
-  --map-unknown: #d6dcef;
-  --map-free: #f4f4fc;
-  --map-wall: #333a4a;
-  --grid-dot: rgba(80, 90, 160, 0.05);
-  --grid-line: rgba(80, 90, 160, 0.035);
+  --panel-2: rgba(250, 243, 248, 0.66);
+  --inset: #efe4ec;
+  --line: #e8d9e4;
+  --hair: #efe1ea;
+  --txt: #322a33;
+  --mid: #6c5f6c;
+  --dim: #a596a3;
+  --accent: #e85b97;
+  --accent-soft: rgba(232, 91, 151, 0.16);
+  --accent-ink: #c83b78;
+  --coral: #ef5a6a;
+  --gold: #c8881d;
+  --sky: #2f93d4;
+  --path: #1fa971;
+  --shadow: 0 3px 10px rgba(120, 80, 120, 0.08), 0 16px 38px rgba(120, 80, 130, 0.13);
+  --shadow-sm: 0 2px 10px rgba(120, 80, 120, 0.12);
+  --map-unknown: #d9dcee;
+  --map-free: #faf6fb;
+  --map-wall: #3a3340;
+  --grid-dot: rgba(180, 90, 150, 0.055);
+  --grid-line: rgba(180, 90, 150, 0.04);
   --skel-sheen: rgba(255, 255, 255, 0.6);
-  --glass-edge: rgba(255, 255, 255, 0.72);
-  --glass-hi: rgba(255, 255, 255, 0.9);
-  --card-edge: rgba(70, 80, 150, 0.2);
+  --glass-edge: rgba(255, 255, 255, 0.74);
+  --glass-hi: rgba(255, 255, 255, 0.92);
+  --card-edge: rgba(165, 95, 140, 0.18);
   --glass-blur: 16px;
   color-scheme: light;
 }
@@ -376,7 +381,7 @@ main {
   gap: 14px;
   grid-template-columns: 1.55fr 1fr;
   grid-template-rows: 1fr 1fr 1fr 188px;
-  grid-template-areas: 'map cam' 'map tel' 'radar diag' 'strip strip';
+  grid-template-areas: 'map cam' 'map tel' 'map diag' 'strip strip';
 }
 .card {
   background: var(--panel);
@@ -420,9 +425,6 @@ main {
 }
 #c-tel {
   grid-area: tel;
-}
-#c-radar {
-  grid-area: radar;
 }
 #c-diag {
   grid-area: diag;
@@ -583,11 +585,14 @@ main {
 .map-layers .map-btn {
   position: static;
 }
+/* Body-portaled (position/top/right set inline by LayersControl); z-index clears
+   the expanded map stage (1000), max-height + scroll guards a very short viewport. */
 .layers-pop {
-  position: absolute;
-  top: 46px;
-  right: 0;
-  min-width: 170px;
+  position: fixed;
+  z-index: 1001;
+  min-width: 178px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
   padding: 8px;
   border-radius: 12px;
   border: 1px solid var(--card-edge);
@@ -611,7 +616,7 @@ main {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 6px;
+  padding: 7px 8px;
   border-radius: 8px;
   cursor: pointer;
   font-size: 12px;
@@ -620,11 +625,52 @@ main {
 .layers-row:hover {
   background: var(--accent-soft);
 }
+.layers-label {
+  flex: 1;
+}
+/* The native checkbox stays in the DOM (keyboard + form semantics) but is hidden;
+   the visible control is .lswitch, an iOS-style track + knob driven by :checked. */
 .layers-row input {
-  accent-color: var(--accent);
-  cursor: pointer;
-  width: 14px;
-  height: 14px;
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+.lswitch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 19px;
+  border-radius: 100px;
+  background: var(--inset);
+  border: 1px solid var(--card-edge);
+  transition: background 0.22s, border-color 0.22s;
+}
+.lswitch::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--dim);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.22s cubic-bezier(0.4, 1.4, 0.5, 1), background 0.22s;
+}
+.layers-row input:checked + .lswitch {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.layers-row input:checked + .lswitch::after {
+  transform: translateX(15px);
+  background: var(--accent);
+}
+.layers-row input:focus-visible + .lswitch {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .layers-download {
   margin-top: 5px;
@@ -647,37 +693,247 @@ main {
   background: var(--accent);
   color: var(--panel-solid);
 }
-
-/* ---------- LiDAR radar ---------- */
-.radar-body {
-  flex: 1;
-  position: relative;
-  min-height: 0;
+.layers-download:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
-.radar-canvas {
+
+/* ---------- WASD teleop (opt-in manual driving) ---------- */
+.teleop {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.teleop-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px 9px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--card-edge);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  color: var(--txt);
+  font-family: var(--ui);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.teleop-toggle:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.teleop-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.teleop-toggle svg {
+  flex: 0 0 auto;
+  color: var(--mid);
+}
+.teleop-toggle.on svg {
+  color: var(--accent);
+}
+.teleop-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+  text-align: left;
+}
+.teleop-label b {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--txt);
+}
+.teleop-label em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.teleop-toggle.on .teleop-label em {
+  color: var(--accent);
+}
+/* the on/off slider that makes this read unmistakably as a toggle */
+.teleop-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 21px;
+  border-radius: 100px;
+  background: var(--inset);
+  border: 1px solid var(--card-edge);
+  transition: background 0.2s, border-color 0.2s;
+}
+.teleop-toggle.on .teleop-switch {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.teleop-knob {
   position: absolute;
-  inset: 0;
+  top: 1px;
+  left: 1px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--dim);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s cubic-bezier(0.4, 1.4, 0.5, 1), background 0.2s;
+}
+.teleop-toggle.on .teleop-knob {
+  transform: translateX(17px);
+  background: var(--accent);
+}
+.teleop-hud {
+  width: 222px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--card-edge);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--glass-hi);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.teleop-keys {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.tk-row {
+  display: flex;
+  gap: 6px;
+}
+.tk {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  border: 1px solid var(--card-edge);
+  background: var(--inset);
+  color: var(--mid);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.08s, color 0.08s, transform 0.08s, border-color 0.08s;
+}
+.tk.on {
+  background: var(--accent);
+  color: var(--panel-solid);
+  border-color: var(--accent);
+  transform: translateY(1px);
+  box-shadow: 0 0 12px var(--accent-soft);
+}
+.teleop-read {
   width: 100%;
-  height: 100%;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--mid);
+}
+.teleop-read > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.teleop-read span {
+  width: 26px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.teleop-read b {
+  color: var(--txt);
+  font-weight: 600;
+}
+.teleop-boost {
+  align-self: flex-start;
+  color: var(--gold) !important;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+}
+.teleop-stop {
+  width: 100%;
+  padding: 8px;
+  border-radius: 9px;
+  border: 1px solid var(--coral);
+  background: transparent;
+  color: var(--coral);
+  font-family: var(--ui);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s;
+}
+.teleop-stop:hover {
+  background: var(--coral);
+  color: var(--panel-solid);
+}
+.teleop-hint {
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--dim);
+  text-align: center;
+  letter-spacing: 0.2px;
 }
 
 /* ---------- topic-health diagnostics ---------- */
+/* Scrolls the full topic list inside the card so a long `ros2 topic list` never
+   grows the layout. flex:1 + min-height:0 bounds it to the card height on desktop
+   (the responsive stack caps #c-diag instead). The scrollbar is deliberately
+   visible (a solid --dim thumb), not a faint overlay that reads as "no scroll". */
 .diag-body {
   flex: 1;
-  padding: 10px 16px;
+  padding: 8px 6px 8px 16px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 7px;
+  gap: 4px;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dim) transparent;
+}
+.diag-body::-webkit-scrollbar {
+  width: 8px;
+}
+.diag-body::-webkit-scrollbar-thumb {
+  background: var(--dim);
+  border-radius: 100px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.diag-body::-webkit-scrollbar-thumb:hover {
+  background: var(--mid);
+  background-clip: padding-box;
+}
+.diag-body::-webkit-scrollbar-track {
+  background: transparent;
 }
 .diag-row {
   display: flex;
   align-items: center;
   gap: 9px;
   font-size: 11.5px;
+  padding: 1px 6px 1px 0;
+  flex: 0 0 auto;
 }
 .diag-dot {
   width: 7px;
@@ -689,16 +945,26 @@ main {
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
 }
-.diag-dot.bad {
-  background: var(--dim);
+.diag-dot.stale {
+  background: var(--coral);
+}
+.diag-dot.present {
+  background: var(--sky);
+  opacity: 0.45;
 }
 .diag-name {
   font-family: var(--mono);
   color: var(--txt);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .diag-type {
   color: var(--dim);
   font-size: 10px;
+  flex: 0 0 auto;
 }
 .diag-hz {
   margin-left: auto;
@@ -1292,6 +1558,11 @@ main {
   transform: translateY(10px);
   animation: rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
   transition: background-color 0.5s, border-color 0.5s;
+  /* A grid item's default min-height:auto lets tall content (the full topic list)
+     blow its row out past 1fr; pin it to 0 so the card stays its track height and
+     the inner body scrolls instead of growing the whole layout. */
+  min-height: 0;
+  min-width: 0;
 }
 .border-glow-card.glow-card > .border-glow-inner {
   height: 100%;
@@ -1560,13 +1831,13 @@ main > .glow-card:nth-child(6) {
     height: auto;
     grid-template-columns: 1fr;
     grid-template-rows: none;
-    grid-template-areas: 'map' 'cam' 'tel' 'radar' 'diag' 'strip';
+    grid-template-areas: 'map' 'cam' 'tel' 'diag' 'strip';
   }
   #c-map {
-    min-height: 360px;
+    min-height: 420px;
   }
-  #c-radar {
-    min-height: 300px;
+  #c-diag {
+    max-height: 320px;
   }
   #c-strip {
     flex-direction: column;

@@ -38,11 +38,11 @@ from rclpy.qos import (
     QoSHistoryPolicy,
 )
 
-from std_msgs.msg import String, Header
+from std_msgs.msg import String, Header, Bool, Float32
 from geometry_msgs.msg import (
-    PoseStamped, Quaternion, Point, Vector3, TransformStamped,
+    PoseStamped, Quaternion, Point, Vector3, TransformStamped, Twist,
 )
-from nav_msgs.msg import OccupancyGrid, Odometry, MapMetaData
+from nav_msgs.msg import OccupancyGrid, Odometry, MapMetaData, Path
 from sensor_msgs.msg import LaserScan, Imu
 from tf2_ros import TransformBroadcaster
 
@@ -121,7 +121,24 @@ class FakePublisher(Node):
         self.pub_imu = self.create_publisher(Imu, "/imu/data", 20)
         self.pub_pose = self.create_publisher(PoseStamped, "/robot_pose", 10)
         self.pub_sys = self.create_publisher(String, "/sys_stats", 10)
+        # Nav2-style global plan stand-in (so the dashboard's path overlay has data
+        # offline): a short route from the robot toward the waypoints ahead.
+        self.pub_plan = self.create_publisher(Path, "/plan", 10)
         self.tf = TransformBroadcaster(self)
+
+        # Extra topics a real Nav2 graph advertises - we just advertise them (no data)
+        # so the dashboard's Topic Health card shows a long, realistic `ros2 topic
+        # list` and its scroll behaviour can be exercised offline.
+        extra = [
+            ("/cmd_vel_nav", Twist), ("/goal_pose", PoseStamped), ("/local_plan", Path),
+            ("/global_costmap/costmap", OccupancyGrid), ("/local_costmap/costmap", OccupancyGrid),
+            ("/amcl_pose", PoseStamped), ("/initialpose", PoseStamped), ("/odom/wheel", Odometry),
+            ("/scan_filtered", LaserScan), ("/map_updates", OccupancyGrid), ("/waypoints", Path),
+            ("/joint_states", String), ("/robot_description", String), ("/diagnostics", String),
+            ("/behavior_tree_log", String), ("/battery_state", Float32), ("/emergency_stop", Bool),
+            ("/speed_limit", Float32), ("/cmd_vel_smoothed", Twist),
+        ]
+        self._extra_pubs = [self.create_publisher(t, n, 10) for n, t in extra]
 
         # Truth + discovered grids. -1 unknown, 0 free, 100 occupied.
         self.truth = bytearray(GW * GH)
@@ -159,6 +176,7 @@ class FakePublisher(Node):
         self.create_timer(0.10, self.publish_scan)  # 10 Hz scan
         self.create_timer(1.00, self.publish_map)   # 1 Hz map
         self.create_timer(1.00, self.publish_sys)   # 1 Hz sys_stats
+        self.create_timer(0.50, self.publish_plan)  # 2 Hz global plan
         self.publish_map()                          # latch one immediately
         mode = ("FULL static map + 'F' landmark + unknown pocket" if FULL_MAP
                 else "explore (map fills in as the robot drives)")
@@ -319,6 +337,26 @@ class FakePublisher(Node):
         msg.info = meta
         msg.data = [int(v) for v in self.grid]
         self.pub_map.publish(msg)
+
+    def publish_plan(self):
+        # A simple global plan: from the robot's current pose, through the next few
+        # waypoints on its loop, interpolated so the overlay reads as a smooth route.
+        goals = [PATH[(self.seg + 1 + k) % len(PATH)] for k in range(3)]
+        knots = [(self.x, self.y)] + goals
+        msg = Path()
+        msg.header = self.header("map")
+        for i in range(len(knots) - 1):
+            ax, ay = knots[i]
+            bx, by = knots[i + 1]
+            steps = 8
+            for s in range(steps):
+                t = s / steps
+                ps = PoseStamped()
+                ps.header = msg.header
+                ps.pose.position = Point(x=ax + (bx - ax) * t, y=ay + (by - ay) * t, z=0.0)
+                ps.pose.orientation.w = 1.0
+                msg.poses.append(ps)
+        self.pub_plan.publish(msg)
 
     def publish_sys(self):
         uptime = (self.get_clock().now() - self.start).nanoseconds / 1e9

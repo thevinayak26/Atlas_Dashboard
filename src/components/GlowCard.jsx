@@ -9,14 +9,13 @@
 import BorderGlow from './BorderGlow';
 
 // Only the edge glow is used (the interior mesh is disabled in theme.css), so
-// glowColor is what matters. Dark mode keeps a warm champagne/amber rim that
-// reads as premium against the near-black panel. Light mode matches the teal
-// ATLAS accent (--accent #0d9488 ≈ "175 84 32"): darker and cohesive against the
-// cream background - the old warm amber washed out / read as yellow on light.
+// glowColor is what matters. Both modes use a PINK rim matching each theme's
+// --accent (dark #ff8ec9 ≈ "329 100 76", light #e85b97 ≈ "335 75 63"), so the
+// cursor-following border glow reads as the ATLAS pink, not the old amber/teal.
 // Expressed as "H S L".
 const PALETTE = {
-  dark: { glow: '40 60 66' },
-  light: { glow: '175 84 32' },
+  dark: { glow: '329 100 76' },
+  light: { glow: '335 75 63' },
 };
 
 export default function GlowCard({ id, theme = 'dark', className = '', children }) {
