@@ -13,7 +13,7 @@ const LINK = {
   down: { cls: 'coral', label: 'Offline', blip: 'coral' },
 };
 
-export default function Header({ clock, mode, hz, status, theme, onToggleTheme }) {
+export default function Header({ clock, mode, hz, latency, status, theme, onToggleTheme }) {
   const link = LINK[status] || LINK.down;
   const linkColor =
     link.cls === 'accent' ? 'var(--accent)' : link.cls === 'gold' ? 'var(--gold)' : 'var(--coral)';
@@ -57,6 +57,9 @@ export default function Header({ clock, mode, hz, status, theme, onToggleTheme }
         <span className="v" style={{ color: linkColor }}>
           {link.label}
         </span>
+        {status === 'connected' && latency != null && (
+          <span className="v num link-ms">{latency}&thinsp;ms</span>
+        )}
       </div>
       <button
         type="button"

@@ -11,9 +11,14 @@ import { useEffect, useRef, useState } from 'react';
 const MAX = 7;
 const MILESTONES = [10, 25, 50, 75, 90];
 
+// 24-hour wall-clock HH:MM:SS. The old MM:SS dropped the hour and read like a
+// mission countdown (it sat right under the "Mission T+" clock), so a real wall
+// time looked wrong / ambiguous — two events an hour apart printed identically.
+// A full local clock time is unmistakably a timestamp.
 const stamp = () => {
   const d = new Date();
-  return String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
 export function useEventLog({ status, coverage, moving }) {

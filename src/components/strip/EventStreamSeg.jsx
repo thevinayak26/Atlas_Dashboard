@@ -18,7 +18,7 @@ export default function EventStreamSeg({ events, loading }) {
             [0, 1, 2].map((i) => (
               <div className="ev info" key={i}>
                 <span className="ts">
-                  <Skeleton width={28} height={9} />
+                  <Skeleton width={40} height={9} />
                 </span>
                 <span className="dot" />
                 <Skeleton width={i === 0 ? 150 : i === 1 ? 190 : 120} height={10} />
@@ -26,7 +26,7 @@ export default function EventStreamSeg({ events, loading }) {
             ))
           ) : events.length === 0 ? (
             <div className="ev info">
-              <span className="ts">--:--</span>
+              <span className="ts">--:--:--</span>
               <span className="dot" />
               <span className="ms">awaiting events…</span>
             </div>

@@ -38,7 +38,18 @@ export default function MapCard({
   ros, status, theme, pose, coverage, loading, onStats, layers, onLayersChange,
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [navMode, setNavMode] = useState(false); // tap-to-navigate armed (expanded only)
+  const [goalToast, setGoalToast] = useState(null); // {x,y} of the last goal, briefly
   const [saveState, setSaveState] = useState('idle'); // idle | saving | ok | err
+
+  // Tap-to-navigate is an EXPANDED-map tool; collapsing also disarms it (a docked
+  // tap means "expand", and we don't want a stray goal on the next open). We reset
+  // it in the same handlers that collapse rather than in an effect (a sync setState
+  // in an effect would cascade renders).
+  const onGoalSet = useCallback((g) => {
+    setGoalToast(g);
+    setTimeout(() => setGoalToast(null), 2400);
+  }, []);
   // The camera, owned here so it survives expand/collapse and the toolbar can drive it.
   const viewRef = useRef({ cx: 0, cy: 0, k: 1, phi: 0, init: false });
   const slotRef = useRef(null);   // in-card placeholder the stage docks onto
@@ -123,7 +134,7 @@ export default function MapCard({
     if (expanded) {
       const prevOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden'; // no background scroll behind fullscreen
-      const onKey = (e) => { if (e.key === 'Escape') setExpanded(false); };
+      const onKey = (e) => { if (e.key === 'Escape') { setExpanded(false); setNavMode(false); } };
       window.addEventListener('keydown', onKey);
       window.addEventListener('resize', syncRect);
       return () => {
@@ -198,7 +209,16 @@ export default function MapCard({
         view={viewRef}
         expanded={expanded}
         onRequestExpand={() => setExpanded(true)}
+        navMode={navMode}
+        onGoalSet={onGoalSet}
       />
+      {expanded && navMode && (
+        <div className="map-navhint">
+          {goalToast
+            ? `Goal set · X ${goalToast.x.toFixed(2)} · Y ${goalToast.y.toFixed(2)}`
+            : 'Tap the map to set a Nav2 goal'}
+        </div>
+      )}
       <LayersControl
         layers={layers}
         onChange={onLayersChange}
@@ -211,7 +231,9 @@ export default function MapCard({
         viewRef={viewRef}
         pose={pose}
         onExpand={() => setExpanded(true)}
-        onClose={() => setExpanded(false)}
+        onClose={() => { setExpanded(false); setNavMode(false); }}
+        navMode={navMode}
+        onToggleNav={() => setNavMode((v) => !v)}
       />
       {expanded && (
         <div className="map-legend in-stage">

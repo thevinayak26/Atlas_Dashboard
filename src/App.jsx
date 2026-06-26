@@ -74,6 +74,7 @@ export default function App() {
         clock={clock}
         mode={mode}
         hz={robot.odomHz}
+        latency={health.latencyMs}
         status={status}
         theme={theme}
         onToggleTheme={toggle}

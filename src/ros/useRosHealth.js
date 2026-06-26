@@ -10,9 +10,10 @@
 import { useEffect, useState } from 'react';
 import * as ROSLIB from 'roslib';
 
-const POLL_MS = 2000;
+const POLL_MS = 1500;   // a touch faster than the old 2 s so the meter reads "live"
+const HIST_MAX = 40;    // samples kept for the latency sparkline (~1 min @ 1.5 s)
 
-const EMPTY = { latencyMs: null, nodes: [], nodeCount: null, ok: false };
+const EMPTY = { latencyMs: null, nodes: [], nodeCount: null, ok: false, history: [] };
 
 export function useRosHealth(ros, status) {
   const [health, setHealth] = useState(EMPTY);
@@ -28,6 +29,7 @@ export function useRosHealth(ros, status) {
 
     let alive = true;
     let timer = null;
+    let hist = []; // rolling latency samples (null = a failed/timed-out poll = gap)
 
     const poll = () => {
       const t0 = performance.now();
@@ -37,13 +39,15 @@ export function useRosHealth(ros, status) {
         (res) => {
           if (!alive) return;
           const latencyMs = Math.round(performance.now() - t0);
+          hist = [...hist, latencyMs].slice(-HIST_MAX);
           const nodes = res?.nodes || [];
-          setHealth({ latencyMs, nodes, nodeCount: nodes.length, ok: true });
+          setHealth({ latencyMs, nodes, nodeCount: nodes.length, ok: true, history: hist });
           timer = setTimeout(poll, POLL_MS);
         },
         () => {
           if (!alive) return;
-          setHealth((h) => ({ ...h, ok: false }));
+          hist = [...hist, null].slice(-HIST_MAX);
+          setHealth((h) => ({ ...h, ok: false, history: hist }));
           timer = setTimeout(poll, POLL_MS);
         }
       );

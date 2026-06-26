@@ -20,23 +20,27 @@ import { quatToYaw } from '../lib/geometry';
 const SAMPLE_HZ = 5;
 const MOVING_EPS = 0.02; // m/s below which we call the robot stopped
 
-// Exponential moving rate estimator: smooth Hz from message inter-arrival times.
-function makeRate(alpha = 0.2) {
-  let last = 0;
-  let hz = 0;
+// Rate estimator that COUNTS messages in a trailing window (the method `ros2 topic
+// hz` uses) — NOT an EMA of instantaneous 1/dt. Websocket delivery is bursty:
+// several messages arrive in one event-loop tick (dt ~1-3 ms -> 1/dt ~300-1000 Hz),
+// then a gap. Averaging 1/dt over-weights those tiny gaps, so a true 30 Hz stream
+// read as 365-970 Hz and a 7 Hz LiDAR as ~285. Counting over a fixed window is
+// immune to that burstiness and reports the real throughput.
+function makeRate(win = 1000) {
+  const stamps = []; // arrival times (ms), oldest first
   return {
     tick(now) {
-      if (last) {
-        const dt = (now - last) / 1000;
-        if (dt > 0) hz = hz ? hz + alpha * (1 / dt - hz) : 1 / dt;
-      }
-      last = now;
+      stamps.push(now);
+      if (stamps.length > 600) stamps.splice(0, stamps.length - 600); // bound memory
     },
-    get value() {
-      return hz;
+    valueAt(now) {
+      while (stamps.length && now - stamps[0] > win) stamps.shift();
+      if (stamps.length < 2) return 0;
+      const span = (stamps[stamps.length - 1] - stamps[0]) / 1000;
+      return span > 0 ? (stamps.length - 1) / span : 0;
     },
     stale(now, ms = 1500) {
-      return !last || now - last > ms;
+      return !stamps.length || now - stamps[stamps.length - 1] > ms;
     },
   };
 }
@@ -83,7 +87,10 @@ export function useRobotData(ros, status) {
       ros,
       name: TOPICS.odom.name,
       messageType: TOPICS.odom.type,
-      throttle_rate: 50,
+      // 25 ms ceiling (40 Hz) so the full ~30 Hz EKF stream gets through and the
+      // measured rate matches the configured rate. The 5 Hz sampler still gates
+      // re-renders, so this only feeds the rate counter + distance integration.
+      throttle_rate: 25,
       queue_length: 1,
     });
     const imu = new ROSLIB.Topic({
@@ -148,7 +155,7 @@ export function useRobotData(ros, status) {
         cpu: sysOk ? L.cpu : null,
         mem: sysOk ? L.mem : null,
         uptime: sysOk ? L.uptime : null,
-        odomHz: odomOk ? odomRate.current.value : null,
+        odomHz: odomOk ? odomRate.current.valueAt(now) : null,
         imuOk,
         odomOk,
         sysOk,

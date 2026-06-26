@@ -46,8 +46,33 @@ export default function TeleopControl({ ros, status }) {
   // effects (writing a ref during render trips react-hooks/refs under the Compiler).
   const heldRef = useRef(held);
   const boostRef = useRef(boost);
+  // On-screen joystick vector (phone only), normalised to [-1, 1]. The publish loop
+  // reads this ref; the knob's screen position lives in React state for rendering.
+  const joyRef = useRef({ x: 0, y: 0, active: false, pointerId: null });
+  const [knob, setKnob] = useState({ kx: 0, ky: 0, nx: 0, ny: 0 });
+  const [joyOn, setJoyOn] = useState(false); // knob grabbed (drives the .on visual)
+  const joyBaseRef = useRef(null);
   useEffect(() => { heldRef.current = held; }, [held]);
   useEffect(() => { boostRef.current = boost; }, [boost]);
+
+  // Joystick is a PHONE affordance: show it only on a touch-primary device, and
+  // hide it the moment a physical keyboard is used (covers a tablet with a keyboard
+  // attached) - exactly the user's rule "no joystick when a keyboard is connected".
+  const [touchPrimary] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(hover: none) and (pointer: coarse)').matches
+      : false,
+  );
+  const [hasKeyboard, setHasKeyboard] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => {
+      const k = e.key.toLowerCase();
+      if (KEYMAP[k] || k === 'shift' || k === ' ' || k === 'spacebar') setHasKeyboard(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const phone = touchPrimary && !hasKeyboard;
 
   // Driving requires both the toggle ON and a live link; losing the link tears the
   // effect down (publishing a stop) and hides the HUD, without forcing state in an
@@ -61,23 +86,40 @@ export default function TeleopControl({ ros, status }) {
     const topic = new ROSLIB.Topic({
       ros, name: TOPICS.cmdVel.name, messageType: TOPICS.cmdVel.type,
     });
-    topic.advertise();
+    try { topic.advertise(); } catch { /* connection raced */ }
 
+    // Publish a PLAIN object, not `new ROSLIB.Message(...)`: roslib v2's ESM build
+    // doesn't export Message (only Ros/Topic/Service), so the old `new ROSLIB.Message`
+    // threw "Message is not a constructor" on EVERY publish — that's why teleop never
+    // moved the robot a millimetre and why toggling off crashed the page. Topic.publish
+    // serialises whatever object it's given. (Same lesson as useRosHealth.js's
+    // ServiceRequest note.) Still guarded so a mid-publish link drop can't bubble into
+    // React — the robot's own 0.5 s watchdog stops it if commands stop arriving.
     const publish = (lin, ang) => {
-      topic.publish(
-        new ROSLIB.Message({
+      try {
+        topic.publish({
           linear: { x: lin, y: 0, z: 0 },
           angular: { x: 0, y: 0, z: ang },
-        })
-      );
+        });
+      } catch { /* link gone mid-publish; watchdog covers the stop */ }
     };
     const stop = () => publish(0, 0);
 
     const tick = () => {
       const h = heldRef.current;
       const m = boostRef.current ? BOOST : 1;
-      const lin = ((h.w ? 1 : 0) - (h.s ? 1 : 0)) * LIN * m;
-      const ang = ((h.a ? 1 : 0) - (h.d ? 1 : 0)) * ANG * m;
+      const j = joyRef.current;
+      let lin;
+      let ang;
+      if (j.active) {
+        // Joystick wins while held: push up (−screen y) = forward, push left = turn
+        // left (CCW = +angular). Magnitude is proportional, so a gentle nudge crawls.
+        lin = -j.y * LIN * m;
+        ang = -j.x * ANG * m;
+      } else {
+        lin = ((h.w ? 1 : 0) - (h.s ? 1 : 0)) * LIN * m;
+        ang = ((h.a ? 1 : 0) - (h.d ? 1 : 0)) * ANG * m;
+      }
       publish(lin, ang);
     };
     const timer = setInterval(tick, PUB_MS);
@@ -121,12 +163,69 @@ export default function TeleopControl({ ros, status }) {
       window.removeEventListener('keydown', onDown);
       window.removeEventListener('keyup', onUp);
       window.removeEventListener('blur', onBlur);
-      stop(); // always leave the robot stopped
-      try { topic.unadvertise(); } catch { /* gone */ }
-      setHeld({ w: false, a: false, s: false, d: false });
-      setBoost(false);
+      // Leave the robot stopped, then drop the publisher. Both are guarded (publish
+      // is wrapped above; unadvertise here) so cleanup can NEVER throw — that was the
+      // crash. No setState in cleanup either: key/boost reset moved to the toggle
+      // handler, which is the only place the effect tears down on purpose.
+      stop();
+      try { topic.unadvertise(); } catch { /* already gone */ }
     };
   }, [driving, ros]);
+
+  // Toggle handler: flip the switch and clear any latched keys so a fresh ON never
+  // shows stale pressed keys (resetting unconditionally is safe — they're already
+  // false when turning ON).
+  const toggle = () => {
+    setActive((a) => !a);
+    setHeld({ w: false, a: false, s: false, d: false });
+    setBoost(false);
+    // Re-centre the stick so a fresh ON never resumes a latched vector.
+    joyRef.current = { x: 0, y: 0, active: false, pointerId: null };
+    setJoyOn(false);
+    setKnob({ kx: 0, ky: 0, nx: 0, ny: 0 });
+  };
+
+  // --- joystick gesture (phone) ---
+  const joySet = (e) => {
+    const base = joyBaseRef.current;
+    if (!base) return;
+    const r = base.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const max = r.width / 2 - 22; // keep the knob inside the ring (knob radius ≈ 22)
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > max && dist > 0) { dx = (dx / dist) * max; dy = (dy / dist) * max; }
+    const nx = max ? dx / max : 0;
+    const ny = max ? dy / max : 0;
+    joyRef.current.x = nx;
+    joyRef.current.y = ny;
+    joyRef.current.active = true;
+    setKnob({ kx: dx, ky: dy, nx, ny });
+  };
+  const joyDown = (e) => {
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    joyRef.current.pointerId = e.pointerId;
+    setJoyOn(true);
+    joySet(e);
+  };
+  const joyMove = (e) => {
+    if (joyRef.current.pointerId !== e.pointerId) return;
+    joySet(e);
+  };
+  const joyEnd = (e) => {
+    if (joyRef.current.pointerId !== e.pointerId) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    joyRef.current = { x: 0, y: 0, active: false, pointerId: null };
+    setJoyOn(false);
+    setKnob({ kx: 0, ky: 0, nx: 0, ny: 0 }); // recentres → next tick publishes a stop
+  };
+
+  // Live joystick command for the HUD readout (matches the publish loop's mapping).
+  const jLin = -knob.ny * LIN;
+  const jAng = -knob.nx * ANG;
 
   const mult = boost ? BOOST : 1;
   const lin = ((held.w ? 1 : 0) - (held.s ? 1 : 0)) * LIN * mult;
@@ -134,7 +233,31 @@ export default function TeleopControl({ ros, status }) {
 
   return (
     <div className="teleop">
-      {driving && (
+      {driving && phone && (
+        <div className="teleop-hud joy" role="status">
+          <div
+            className={`teleop-joy ${joyOn ? 'on' : ''}`}
+            ref={joyBaseRef}
+            onPointerDown={joyDown}
+            onPointerMove={joyMove}
+            onPointerUp={joyEnd}
+            onPointerCancel={joyEnd}
+          >
+            <span className="teleop-joy-ring" />
+            <span className="teleop-joy-cross" />
+            <span
+              className="teleop-joy-knob"
+              style={{ transform: `translate(${knob.kx}px, ${knob.ky}px)` }}
+            />
+          </div>
+          <div className="teleop-read">
+            <div><span>lin</span><b className="num">{jLin.toFixed(2)}</b> m/s</div>
+            <div><span>ang</span><b className="num">{jAng.toFixed(2)}</b> rad/s</div>
+          </div>
+          <div className="teleop-hint">Drag to drive · release to stop</div>
+        </div>
+      )}
+      {driving && !phone && (
         <div className="teleop-hud" role="status">
           <div className="teleop-keys">
             <span className={`tk ${held.w ? 'on' : ''}`}>W</span>
@@ -160,7 +283,7 @@ export default function TeleopControl({ ros, status }) {
       <button
         type="button"
         className={`teleop-toggle ${driving ? 'on' : ''}`}
-        onClick={() => setActive((a) => !a)}
+        onClick={toggle}
         disabled={!connected}
         aria-pressed={driving}
         title={connected ? 'Toggle manual WASD driving' : 'Connect to drive'}
@@ -168,7 +291,11 @@ export default function TeleopControl({ ros, status }) {
         <WheelIcon />
         <span className="teleop-label">
           <b>Manual Drive</b>
-          <em>{driving ? 'WASD live' : connected ? 'keyboard off' : 'offline'}</em>
+          <em>
+            {driving
+              ? phone ? 'joystick live' : 'WASD live'
+              : connected ? (phone ? 'tap to drive' : 'keyboard off') : 'offline'}
+          </em>
         </span>
         <span className="teleop-switch" aria-hidden="true"><span className="teleop-knob" /></span>
       </button>

@@ -39,6 +39,10 @@ export const TOPICS = {
   // Manual WASD teleop publishes here (the same topic teleop_twist_keyboard uses);
   // the robot's velocity bridge already subscribes to /cmd_vel.
   cmdVel:     { name: '/cmd_vel',    type: 'geometry_msgs/Twist',       status: 'live' },
+  // Tap-to-navigate publishes a single Nav2 goal here (map frame). Same topic
+  // RViz's "2D Nav Goal" uses; only meaningful while Nav2 is running (otherwise it
+  // simply has no subscriber). Gated behind the map's nav-goal toggle.
+  goal:       { name: '/goal_pose',  type: 'geometry_msgs/PoseStamped', status: 'live' },
   // TF tree - the map overlay composes map->odom->base_link from these to place the
   // robot + LiDAR scan in the map frame (so the scan shows ON the map without needing
   // a separate /robot_pose publisher). /tf_static is latched.

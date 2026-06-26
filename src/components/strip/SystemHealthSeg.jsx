@@ -11,8 +11,44 @@ import Skeleton from '../Skeleton';
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const NODE_BARS = 10; // visual cap
 
-export default function SystemHealthSeg({ latencyMs, scanHz, cpu, nodeCount, healthOk, loading }) {
-  const linkPct = latencyMs != null ? clamp(100 - latencyMs, 12, 100) : 0;
+// Map a round-trip latency (ms) to a status colour. Good link ≲ 80 ms, usable to
+// ~200 ms, sluggish beyond — same thresholds used for the value text and the line.
+const latColor = (ms) =>
+  ms == null ? 'var(--dim)' : ms <= 80 ? 'var(--accent)' : ms <= 200 ? 'var(--gold)' : 'var(--coral)';
+
+// Inline SVG sparkline of recent latency samples (nulls = failed polls = skipped).
+// Baseline pinned at 0 ms so the line height reads as absolute latency, not a
+// rescaled wiggle. non-scaling-stroke keeps it crisp under the stretched viewBox.
+function Sparkline({ data = [], color }) {
+  const W = 100;
+  const H = 20;
+  const vals = data.filter((v) => v != null);
+  if (vals.length < 2) return <div className="spark spark-empty" />;
+  const top = Math.max(...vals, 30); // a little headroom so a flat low line isn't glued to the top
+  const n = data.length;
+  const pts = [];
+  data.forEach((v, i) => {
+    if (v == null) return;
+    const x = (i / (n - 1)) * W;
+    const y = H - (clamp(v, 0, top) / top) * H;
+    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  });
+  return (
+    <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      <polyline
+        points={pts.join(' ')}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        vectorEffect="non-scaling-stroke"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export default function SystemHealthSeg({ latencyMs, latencyHistory = [], scanHz, cpu, nodeCount, healthOk, loading }) {
   const scanPct = scanHz != null ? clamp((scanHz / 10) * 100, 0, 100) : 0;
   const cpuPct = cpu != null ? clamp(cpu, 0, 100) : 0;
   const cpuCls = cpu == null ? '' : cpu > 90 ? 'coral' : cpu > 70 ? 'gold' : '';
@@ -29,11 +65,9 @@ export default function SystemHealthSeg({ latencyMs, scanHz, cpu, nodeCount, hea
         <div className="hgrid">
           <div className="hrow">
             <span className="k">Link</span>
-            <div className="hbar">
-              <i style={{ width: linkPct + '%' }} />
-            </div>
+            <Sparkline data={latencyHistory} color={latColor(latencyMs)} />
             {val(
-              <span className={'v' + (latencyMs != null ? ' ok' : '')}>
+              <span className="v" style={{ color: latColor(latencyMs) }}>
                 {latencyMs != null ? latencyMs + ' ms' : '-'}
               </span>
             )}

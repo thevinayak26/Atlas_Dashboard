@@ -66,7 +66,7 @@ const roundRect = (ctx, x, y, w, h, r) => {
 
 export default function MapCanvas({
   ros, status, theme, onStats, layers = DEFAULT_LAYERS,
-  view: viewProp, expanded = false, onRequestExpand,
+  view: viewProp, expanded = false, onRequestExpand, navMode = false, onGoalSet,
 }) {
   const canvasRef = useRef(null);
   const dirtyRef = useRef(false); // theme changed → bitmap needs re-rasterising
@@ -82,10 +82,20 @@ export default function MapCanvas({
   // ref during render trips react-hooks/refs and isn't safe under the Compiler).
   const expandedRef = useRef(expanded);
   const requestExpandRef = useRef(onRequestExpand);
+  const navModeRef = useRef(navMode);
+  const onGoalSetRef = useRef(onGoalSet);
   useEffect(() => {
     expandedRef.current = expanded;
     requestExpandRef.current = onRequestExpand;
-  }, [expanded, onRequestExpand]);
+    navModeRef.current = navMode;
+    onGoalSetRef.current = onGoalSet;
+  }, [expanded, onRequestExpand, navMode, onGoalSet]);
+
+  // Idle cursor signals the mode: crosshair when arming a Nav2 goal, grab otherwise.
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (cv) cv.style.cursor = navMode ? 'crosshair' : 'grab';
+  }, [navMode]);
 
   // Layer visibility toggles, read by the draw loop via a ref so flipping one
   // doesn't tear down/rebuild the ROS subscriptions (mirrors expandedRef above).
@@ -382,8 +392,11 @@ export default function MapCanvas({
       try { canvas.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
       const wasPan = gesture && gesture.mode === 'pan' && gesture.id === e.pointerId;
       const tap = wasPan && !gesture.moved && performance.now() - gesture.downT < TAP_MS;
+      const [ux, uy] = canvasXY(e);
       pointers.delete(e.pointerId);
-      if (tap && !expandedRef.current && requestExpandRef.current) {
+      if (tap && navModeRef.current && expandedRef.current) {
+        sendGoal(ux, uy); // armed nav goal on the (expanded) map → publish /goal_pose
+      } else if (tap && !expandedRef.current && requestExpandRef.current) {
         requestExpandRef.current(); // a clean tap on the docked map → expand
       }
       if (pointers.size === 1) {
@@ -393,7 +406,7 @@ export default function MapCanvas({
         gesture = { mode: 'pan', id, gpx, gpy, downX: p.x, downY: p.y, downT: performance.now(), moved: true };
       } else if (pointers.size === 0) {
         gesture = null;
-        canvas.style.cursor = 'grab';
+        canvas.style.cursor = navModeRef.current ? 'crosshair' : 'grab';
       }
     };
 
@@ -716,12 +729,49 @@ export default function MapCanvas({
     const tfStaticTopic = new ROSLIB.Topic({
       ros, name: TOPICS.tfStatic.name, messageType: TOPICS.tfStatic.type,
     });
+    // Tap-to-navigate publisher (gated by navMode). Publish a PLAIN object — roslib
+    // v2's ESM build has no ROSLIB.Message (see TeleopControl) — and let publish()
+    // auto-advertise. ROS 2 Time uses `nanosec`; stamp 0 means "latest" to Nav2.
+    const goalTopic = new ROSLIB.Topic({
+      ros, name: TOPICS.goal.name, messageType: TOPICS.goal.type,
+    });
+    // bitmap px → world (m): exact inverse of worldToPx, used to turn a tap into a goal.
+    const pxToWorld = (gpx, gpy) => [
+      meta.originX + gpx * meta.resolution,
+      meta.originY + (meta.height - gpy) * meta.resolution,
+    ];
+    const sendGoal = (sx, sy) => {
+      if (!lastT || !meta) return;
+      const [gpx, gpy] = screenToPx(lastT, sx, sy);
+      const [wx, wy] = pxToWorld(gpx, gpy);
+      // Face the goal along robot→target so the rover drives forward into it; if we
+      // have no pose yet, leave it facing +x (yaw 0).
+      const yaw = pose ? Math.atan2(wy - pose.y, wx - pose.x) : 0;
+      try {
+        goalTopic.publish({
+          header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
+          pose: {
+            position: { x: wx, y: wy, z: 0 },
+            orientation: { x: 0, y: 0, z: Math.sin(yaw / 2), w: Math.cos(yaw / 2) },
+          },
+        });
+        if (onGoalSetRef.current) onGoalSetRef.current({ x: wx, y: wy });
+      } catch { /* link gone mid-publish - ignore, the user can re-tap */ }
+    };
 
     mapTopic.subscribe((msg) => rasterize(msg));
     scanTopic.subscribe((msg) => {
       scan = msg;
       const now = performance.now();
-      if (scanRate.last) {
+      // TRUE sensor rate comes from the LaserScan's own scan_time field (seconds per
+      // revolution, set by the rplidar driver) — it's immune to the 100 ms rosbridge
+      // throttle and websocket jitter that made the old receive-interval estimate read
+      // high/unstable. Only fall back to inter-arrival if the driver leaves it at 0.
+      const st = msg.scan_time;
+      if (st && st > 0 && st < 2) {
+        const hz = 1 / st;
+        scanRate.hz = scanRate.hz ? scanRate.hz + 0.3 * (hz - scanRate.hz) : hz;
+      } else if (scanRate.last) {
         const dt = (now - scanRate.last) / 1000;
         if (dt > 0) scanRate.hz = scanRate.hz ? scanRate.hz + 0.25 * (1 / dt - scanRate.hz) : 1 / dt;
       }
@@ -746,7 +796,7 @@ export default function MapCanvas({
     tfTopic.subscribe(onTf);
     tfStaticTopic.subscribe((msg) => setTfs(msg.transforms));
 
-    canvas.style.cursor = 'grab';
+    canvas.style.cursor = navModeRef.current ? 'crosshair' : 'grab';
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', endPointer);
@@ -767,6 +817,7 @@ export default function MapCanvas({
       try { planTopic.unsubscribe(); } catch { /* gone */ }
       try { tfTopic.unsubscribe(); } catch { /* gone */ }
       try { tfStaticTopic.unsubscribe(); } catch { /* gone */ }
+      try { goalTopic.unadvertise(); } catch { /* never advertised / gone */ }
     };
   }, [ros, status, onStats, view]);
 

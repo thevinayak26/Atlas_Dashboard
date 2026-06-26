@@ -22,8 +22,9 @@ const TargetIcon = () => <Svg><circle cx="12" cy="12" r="7" /><circle cx="12" cy
 const FitIcon = () => <Svg><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" /></Svg>;
 const ExpandIcon = () => <Svg><path d="M8 3H4a1 1 0 0 0-1 1v4M16 3h4a1 1 0 0 1 1 1v4M8 21H4a1 1 0 0 1-1-1v-4M16 21h4a1 1 0 0 0 1-1v-4" /></Svg>;
 const CloseIcon = () => <Svg><path d="M6 6l12 12M18 6L6 18" /></Svg>;
+const GoalIcon = () => <Svg><path d="M12 21s-6-5.3-6-10a6 6 0 1 1 12 0c0 4.7-6 10-6 10z" /><circle cx="12" cy="11" r="2" /></Svg>;
 
-export default function MapControls({ expanded, viewRef, pose, onExpand, onClose }) {
+export default function MapControls({ expanded, viewRef, pose, onExpand, onClose, navMode, onToggleNav }) {
   const zoom = (f) => () => {
     const v = viewRef.current;
     v.k = Math.max(K_MIN, Math.min(K_MAX, v.k * f));
@@ -54,6 +55,12 @@ export default function MapControls({ expanded, viewRef, pose, onExpand, onClose
       <button type="button" className="map-btn map-close" onClick={onClose}
         title="Close (Esc)" aria-label="Close map">
         <CloseIcon />
+      </button>
+      <button type="button" className={'map-btn map-nav-toggle' + (navMode ? ' on' : '')}
+        onClick={onToggleNav} aria-pressed={navMode}
+        title={navMode ? 'Tap-to-navigate: ON (tap map to set goal)' : 'Tap-to-navigate'}
+        aria-label="Toggle tap-to-navigate">
+        <GoalIcon />
       </button>
       <div className="map-controls" role="toolbar" aria-label="Map view controls">
         <button type="button" className="map-btn" onClick={zoom(K_STEP)} title="Zoom in" aria-label="Zoom in"><PlusIcon /></button>

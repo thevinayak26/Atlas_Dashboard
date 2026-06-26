@@ -23,6 +23,7 @@ export default function StripCard({ robot, health, scanHz, events, pose, loading
       <EventStreamSeg events={events} loading={loading} />
       <SystemHealthSeg
         latencyMs={health.latencyMs}
+        latencyHistory={health.history}
         scanHz={scanHz}
         cpu={robot.cpu}
         nodeCount={health.nodeCount}
