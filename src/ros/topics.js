@@ -50,7 +50,7 @@ export const TOPICS = {
   tfStatic:   { name: '/tf_static',  type: 'tf2_msgs/TFMessage',        status: 'live' },
 
   // Not yet available - render honest "awaiting/offline" placeholders (§1, §4).
-  camera:         { name: '/camera/image_raw',  type: 'sensor_msgs/Image', status: 'later' },
+  camera:         { name: '/image_raw',        type: 'sensor_msgs/Image', status: 'live' },
   ultrasonicLow:  { name: '/ultrasonic/front',  type: 'sensor_msgs/Range', status: 'later' },
   ultrasonicCliff:{ name: '/ultrasonic/cliff',  type: 'sensor_msgs/Range', status: 'later' },
 };

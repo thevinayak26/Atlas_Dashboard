@@ -173,10 +173,15 @@ header {
   font-size: 27px;
   letter-spacing: 0.5px;
   color: var(--txt);
+  display: inline-block;
+  transform-origin: left center;
+  transition: transform 0.32s cubic-bezier(0.2, 0.85, 0.2, 1), filter 0.32s ease,
+    letter-spacing 0.32s ease;
 }
 .brand .logo b {
   color: var(--accent);
   font-style: italic;
+  transition: text-shadow 0.32s ease;
 }
 .brand .tag {
   font-size: 10px;
@@ -188,7 +193,23 @@ header {
 /* Atlas wordmark → floating acronym tooltip (hover a moment, or tap) */
 .brand-logo {
   position: relative;
-  cursor: help;
+  cursor: pointer;
+  outline: none;
+}
+/* Hover/focus → the wordmark lifts and glows in the accent instead of a
+   question-mark cursor; the accent 'a' flares brighter. */
+.brand-logo:hover .logo,
+.brand-logo:focus-visible .logo {
+  transform: scale(1.06);
+  letter-spacing: 1.1px;
+  filter: drop-shadow(0 1px 10px var(--accent-soft));
+}
+.brand-logo:hover .logo b,
+.brand-logo:focus-visible .logo b {
+  text-shadow: 0 0 18px var(--accent), 0 0 6px var(--accent);
+}
+.brand-logo:active .logo {
+  transform: scale(1.01);
 }
 .atlas-tip {
   position: absolute;

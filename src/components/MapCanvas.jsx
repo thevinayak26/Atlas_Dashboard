@@ -41,6 +41,7 @@ const K_MIN = 0.35;      // zoom-out limit (× aspect-fit)
 const K_MAX = 16;        // zoom-in limit
 const TAP_PX = 8;        // pointer travel under this (and quick) = a tap, not a drag
 const TAP_MS = 350;
+const ROBOT_RADIUS_M = 0.12; // real chassis radius (m); rover is drawn to true footprint
 
 // Layer visibility defaults (overridden by the persisted set passed from App).
 const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, path: true, grid: false };
@@ -119,6 +120,7 @@ export default function MapCanvas({
     let bitmap = null;     // offscreen canvas with the rasterised grid
     let mapMsg = null;     // last raw /map (for re-raster on theme change)
     let meta = null;       // { width, height, resolution, originX, originY, known }
+    let wallRects = [];    // merged wall rectangles (bitmap px) for 2.5D extrusion
     let scan = null;       // latest LaserScan
     let pose = null;       // effective robot pose { x, y, yaw } in the MAP frame
     let lastTfPose = 0;    // when TF last yielded a pose (TF is preferred source)
@@ -146,6 +148,7 @@ export default function MapCanvas({
       path: cssVar('--path'),
       cardEdge: cssVar('--card-edge'),
       dim: cssVar('--dim'),
+      mapWall: cssVar('--map-wall'), // base colour for the extruded 2.5D walls
     });
 
     const detectFrontiers = (data, w, h, info) => {
@@ -202,6 +205,39 @@ export default function MapCanvas({
       frontierCount = centroids.length;
     };
 
+    // Merge contiguous wall cells into a small set of maximal rectangles (greedy:
+    // grow right, then down). Per /map only. Turning thousands of wall cells into a
+    // few hundred rects is what lets the per-frame 2.5D extrusion stay at 60 fps.
+    const buildWallRects = (mask, w, h, bbox) => {
+      const x0 = bbox ? bbox.x0 : 0;
+      const y0 = bbox ? bbox.y0 : 0;
+      const x1 = bbox ? bbox.x1 : w;
+      const y1 = bbox ? bbox.y1 : h;
+      const used = new Uint8Array(w * h);
+      const rects = [];
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const idx = y * w + x;
+          if (!mask[idx] || used[idx]) continue;
+          let rw = 1;
+          while (x + rw < x1 && mask[idx + rw] && !used[idx + rw]) rw++;
+          let rh = 1;
+          grow: while (y + rh < y1) {
+            const row = (y + rh) * w + x;
+            for (let k = 0; k < rw; k++) {
+              if (!mask[row + k] || used[row + k]) break grow;
+            }
+            rh++;
+          }
+          for (let yy = y; yy < y + rh; yy++) {
+            for (let xx = x; xx < x + rw; xx++) used[yy * w + xx] = 1;
+          }
+          rects.push({ x, y, w: rw, h: rh });
+        }
+      }
+      return rects;
+    };
+
     const rasterize = (msg) => {
       const w = msg.info.width;
       const h = msg.info.height;
@@ -227,6 +263,7 @@ export default function MapCanvas({
       // large unexplored padding off to one side - the "empty left band").
       let bx0 = w, by0 = h, bx1 = -1, by1 = -1;
       const n = w * h;
+      const wallMask = new Uint8Array(n); // bitmap-space wall flags, for extrusion
       for (let i = 0; i < n; i++) {
         const v = i < data.length ? data[i] : -1;
         const c = v < 0 ? cUnknown : v >= 65 ? cWall : cFree;
@@ -239,6 +276,7 @@ export default function MapCanvas({
           if (y < by0) by0 = y;
           if (y > by1) by1 = y;
         }
+        if (v >= 65) wallMask[y * w + x] = 1;
         const p = (y * w + x) * 4;
         img.data[p] = c[0];
         img.data[p + 1] = c[1];
@@ -256,6 +294,7 @@ export default function MapCanvas({
         known: bx1 >= bx0 ? { x0: bx0, y0: by0, x1: bx1 + 1, y1: by1 + 1 } : null,
       };
       coverage = n ? Math.round((known / n) * 100) : 0;
+      wallRects = buildWallRects(wallMask, w, h, meta.known);
       detectFrontiers(data, w, h, msg.info);
     };
 
@@ -464,6 +503,84 @@ export default function MapCanvas({
         ctx.drawImage(bitmap, 0, 0);
         ctx.restore();
 
+        // 2.5D walls: extrude each merged wall rectangle into a solid block using an
+        // OBLIQUE (cavalier) projection — the cap is the base shifted up-and-right in
+        // screen space, so the connecting side faces have real area and read as 3D
+        // (a straight-up lift collapses the left/right faces to zero width → looks
+        // flat). The floor stays a flat top-down draw and the gesture inverse is
+        // untouched; this is purely a screen-space overlay. Lighting is fixed to the
+        // screen (upper-left) so it stays consistent as the map rotates. Skipped for
+        // pathological maps (very many rects) so a noisy grid can't blow the budget.
+        if (wallRects.length && wallRects.length < 3000) {
+          const wallRgb = hexToRgb(palette.mapWall);
+          const lift = clamp(T.s * 1.35, 12, 52);  // block height (screen px), grows w/ zoom
+          const ox = lift * 0.5;                    // cavalier lean: cap shifts right…
+          const oy = -lift;                         // …and up
+          const shx = Math.max(3, lift * 0.22);     // grounding-shadow offset (down-right)
+          const shy = Math.max(4, lift * 0.30);
+          const LX = -0.55, LY = -0.83;            // screen-space light dir (upper-left)
+          const capCol = shade(wallRgb, 1.2);
+          const capStroke = shade(wallRgb, 0.42);
+          ctx.lineJoin = 'round';
+          // pass 1: grounding shadows (all rects first, so no block sits on a neighbour's shadow)
+          ctx.fillStyle = 'rgba(0,0,0,0.34)';
+          for (const r of wallRects) {
+            const s0 = T.px(r.x, r.y), s1 = T.px(r.x + r.w, r.y);
+            const s2 = T.px(r.x + r.w, r.y + r.h), s3 = T.px(r.x, r.y + r.h);
+            ctx.beginPath();
+            ctx.moveTo(s0[0] + shx, s0[1] + shy);
+            ctx.lineTo(s1[0] + shx, s1[1] + shy);
+            ctx.lineTo(s2[0] + shx, s2[1] + shy);
+            ctx.lineTo(s3[0] + shx, s3[1] + shy);
+            ctx.closePath();
+            ctx.fill();
+          }
+          // pass 2: side faces + lit cap per rect
+          for (const r of wallRects) {
+            const base = [
+              T.px(r.x, r.y), T.px(r.x + r.w, r.y),
+              T.px(r.x + r.w, r.y + r.h), T.px(r.x, r.y + r.h),
+            ];
+            const cap = base.map((p) => [p[0] + ox, p[1] + oy]);
+            // winding sign (screen space, y-down) → outward edge normals
+            let area2 = 0;
+            for (let i = 0; i < 4; i++) {
+              const a = base[i], c = base[(i + 1) % 4];
+              area2 += a[0] * c[1] - c[0] * a[1];
+            }
+            const flip = area2 < 0;
+            for (let i = 0; i < 4; i++) {
+              const P = base[i], Q = base[(i + 1) % 4];
+              let nx = Q[1] - P[1], ny = -(Q[0] - P[0]); // right-hand normal
+              if (flip) { nx = -nx; ny = -ny; }
+              if (nx * ox + ny * oy > 0) continue;        // back-facing → cull
+              const nl = Math.hypot(nx, ny) || 1;
+              const litf = Math.max(0, (nx * LX + ny * LY) / nl);
+              ctx.fillStyle = shade(wallRgb, 0.3 + 0.5 * litf);
+              const Pc = cap[i], Qc = cap[(i + 1) % 4];
+              ctx.beginPath();
+              ctx.moveTo(P[0], P[1]);
+              ctx.lineTo(Q[0], Q[1]);
+              ctx.lineTo(Qc[0], Qc[1]);
+              ctx.lineTo(Pc[0], Pc[1]);
+              ctx.closePath();
+              ctx.fill();
+            }
+            // lit top cap
+            ctx.fillStyle = capCol;
+            ctx.beginPath();
+            ctx.moveTo(cap[0][0], cap[0][1]);
+            ctx.lineTo(cap[1][0], cap[1][1]);
+            ctx.lineTo(cap[2][0], cap[2][1]);
+            ctx.lineTo(cap[3][0], cap[3][1]);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = capStroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+
         // Frame the explored region (rotates with the view) so the aspect-fit
         // gutters read as a deliberate display surface, not dead space.
         const b = meta.known || { x0: 0, y0: 0, x1: meta.width, y1: meta.height };
@@ -601,44 +718,128 @@ export default function MapCanvas({
           ctx.stroke();
         }
 
-        // robot marker - a 2.5D rover (shaded chassis + drop shadow + heading
-        // wedge), rotated by heading and the view. Toggleable via the layers panel.
+        // robot marker — a stylised top-down 3-D rover that mirrors the real
+        // two-tier round chassis: extruded MDF-style decks (accent), a black
+        // LiDAR puck, two chunky side wheels, gold standoffs and sky-blue
+        // forward ultrasonic sensors that also point the heading. It is drawn to
+        // the robot's TRUE footprint (metres → px via the map resolution) with a
+        // visible floor when zoomed out, so its size tracks the walls. 3-D shading
+        // is screen-fixed (upper-left light, like the walls); only the wheels and
+        // front sensors rotate with the heading. Toggleable via the layers panel.
         if (pose && L.robot) {
           const [sx, sy] = T.toScreen(pose.x, pose.y);
-          const aRgb = hexToRgb(accent);
-          ctx.save();
-          ctx.translate(sx, sy);
-          ctx.rotate(T.phi - pose.yaw); // screen y down → negate world (CCW) yaw, add view spin
-          // soft ground shadow - the "lift" that reads as 2.5D
-          ctx.fillStyle = 'rgba(0,0,0,0.32)';
+          const hd = T.phi - pose.yaw;                    // heading in screen space
+          const fwx = Math.cos(hd), fwy = Math.sin(hd);   // forward unit (screen)
+          const rgx = -Math.sin(hd), rgy = Math.cos(hd);  // robot-right unit (screen)
+          const pxPerM = meta ? T.s / meta.resolution : T.s * 20;
+          const R = clamp(ROBOT_RADIUS_M * pxPerM, 12, 58); // body radius (px)
+          const acc = hexToRgb(accent);
+          const skyR = hexToRgb(sky);
+          const goldR = hexToRgb(gold);
+
+          // an extruded disc: a dark "thickness" (base circle) under a lit cap
+          // shifted up-and-right, matching the walls' oblique projection + light.
+          // Returns the cap centre so things can be stacked on top of it.
+          const disc = (cx, cy, rad, lift, capLo, capHi, sideLo, sideHi, stroke) => {
+            const ox = lift * 0.34, oy = -lift;
+            const gs = ctx.createLinearGradient(cx, cy + rad, cx, cy - rad);
+            gs.addColorStop(0, sideLo); gs.addColorStop(1, sideHi);
+            ctx.fillStyle = gs;
+            ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7); ctx.fill();
+            const gc = ctx.createLinearGradient(cx + ox, cy + oy + rad, cx + ox, cy + oy - rad);
+            gc.addColorStop(0, capLo); gc.addColorStop(1, capHi);
+            ctx.fillStyle = gc;
+            ctx.beginPath(); ctx.arc(cx + ox, cy + oy, rad, 0, 7); ctx.fill();
+            if (stroke) { ctx.lineWidth = Math.max(1, rad * 0.04); ctx.strokeStyle = stroke; ctx.stroke(); }
+            return [cx + ox, cy + oy];
+          };
+
+          // soft accent presence halo, then a ground shadow offset down-right
+          const halo = ctx.createRadialGradient(sx, sy, R * 0.5, sx, sy, R * 1.7);
+          halo.addColorStop(0, accent + '00');
+          halo.addColorStop(0.66, accent + '22');
+          halo.addColorStop(1, accent + '00');
+          ctx.fillStyle = halo;
+          ctx.beginPath(); ctx.arc(sx, sy, R * 1.7, 0, 7); ctx.fill();
+          ctx.fillStyle = 'rgba(0,0,0,0.30)';
           ctx.beginPath();
-          ctx.ellipse(1.5, 3, 13, 9, 0, 0, 7);
+          ctx.ellipse(sx + R * 0.18, sy + R * 0.24, R * 1.16, R * 1.0, 0, 0, 7);
           ctx.fill();
-          // chassis: rounded body with a top-lit gradient
-          const grad = ctx.createLinearGradient(0, -8, 0, 8);
-          grad.addColorStop(0, shade(aRgb, 1.4));
-          grad.addColorStop(1, shade(aRgb, 0.82));
-          ctx.fillStyle = grad;
-          ctx.strokeStyle = inset;
-          ctx.lineWidth = 1.5;
-          roundRect(ctx, -10, -7, 20, 14, 4);
-          ctx.fill();
+
+          // chunky dark tires on each side, rolling along the heading; drawn first
+          // so the decks overlap their inner half and the tread pokes out (as real)
+          for (const side of [-1, 1]) {
+            const wx = sx + rgx * R * 1.12 * side;
+            const wy = sy + rgy * R * 1.12 * side;
+            ctx.save();
+            ctx.translate(wx, wy);
+            ctx.rotate(hd);
+            const wl = R * 1.12, ww = R * 0.52;
+            ctx.fillStyle = '#15171d';
+            roundRect(ctx, -wl / 2, -ww / 2, wl, ww, ww * 0.4);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.10)'; // top sheen
+            roundRect(ctx, -wl / 2, -ww / 2, wl, ww * 0.32, ww * 0.32);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.08)'; // tread
+            ctx.lineWidth = Math.max(1, ww * 0.1);
+            for (let t = -2; t <= 2; t++) {
+              const tx = t * wl * 0.16;
+              ctx.beginPath();
+              ctx.moveTo(tx, -ww * 0.42);
+              ctx.lineTo(tx, ww * 0.42);
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+
+          // lower deck (in shadow) then upper deck (lit) → the two-tier thickness
+          disc(sx, sy + R * 0.08, R * 1.04, R * 0.16,
+            shade(acc, 0.5), shade(acc, 0.66), shade(acc, 0.3), shade(acc, 0.42),
+            shade(acc, 0.5));
+          const [dx, dy] = disc(sx, sy - R * 0.06, R * 0.96, R * 0.22,
+            shade(acc, 1.08), shade(acc, 1.55), shade(acc, 0.42), shade(acc, 0.6),
+            shade(acc, 0.72));
+
+          // gold standoffs poking up through the upper deck
+          ctx.fillStyle = shade(goldR, 1.12);
+          for (const ang of [-2.3, -0.84, 0.84, 2.3]) {
+            const gxp = dx + Math.cos(ang) * R * 0.8;
+            const gyp = dy + Math.sin(ang) * R * 0.8;
+            ctx.beginPath(); ctx.arc(gxp, gyp, Math.max(1.2, R * 0.07), 0, 7); ctx.fill();
+          }
+
+          // front "headlight" arc + two sky-blue ultrasonic sensors → heading cue
+          ctx.strokeStyle = shade(acc, 1.7);
+          ctx.lineWidth = Math.max(1.5, R * 0.1);
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.arc(dx, dy, R * 0.9, hd - 0.5, hd + 0.5);
           ctx.stroke();
-          // heading wedge at the front (+x), brighter
-          ctx.fillStyle = shade(aRgb, 1.65);
-          ctx.beginPath();
-          ctx.moveTo(11, 0);
-          ctx.lineTo(3, -4.5);
-          ctx.lineTo(3, 4.5);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-          // heading ring
-          ctx.strokeStyle = accent + '33';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(sx, sy, 17, 0, 7);
-          ctx.stroke();
+          ctx.lineCap = 'butt';
+          for (const side of [-1, 1]) {
+            const ux = dx + fwx * R * 0.74 + rgx * R * 0.24 * side;
+            const uy = dy + fwy * R * 0.74 + rgy * R * 0.24 * side;
+            ctx.fillStyle = shade(skyR, 0.8);
+            ctx.beginPath(); ctx.arc(ux, uy, Math.max(1.6, R * 0.13), 0, 7); ctx.fill();
+            ctx.fillStyle = shade(skyR, 1.5);
+            ctx.beginPath(); ctx.arc(ux - R * 0.03, uy - R * 0.04, Math.max(0.8, R * 0.05), 0, 7); ctx.fill();
+          }
+
+          // LiDAR puck — a tall black cylinder with a glossy cap + accent scan ring
+          const lx = dx + fwx * R * 0.04, ly = dy + fwy * R * 0.04;
+          const [px2, py2] = disc(lx, ly, R * 0.38, R * 0.27,
+            'rgb(26,28,34)', 'rgb(40,44,52)', 'rgb(12,13,17)', 'rgb(20,22,28)',
+            shade(acc, 0.55));
+          ctx.strokeStyle = accent + 'cc'; // spinning scan ring
+          ctx.lineWidth = Math.max(1, R * 0.05);
+          ctx.beginPath(); ctx.arc(px2, py2, R * 0.27, 0, 7); ctx.stroke();
+          const gl = ctx.createRadialGradient(px2 - R * 0.11, py2 - R * 0.13, 1, px2, py2, R * 0.38);
+          gl.addColorStop(0, 'rgba(255,255,255,0.5)');
+          gl.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+          gl.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = gl;
+          ctx.beginPath(); ctx.arc(px2, py2, R * 0.42, 0, 7); ctx.fill();
         }
       } else {
         ctx.fillStyle = palette.dim;
