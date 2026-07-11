@@ -8,6 +8,7 @@ const TARGETS = {
   desk:    ['desk','desk a','deska','table','मेज','मेज़','mez','escritorio'],
   window:  ['window','खिड़की','khidki','ventana','சாளரம்'],
   doorway: ['doorway','door','दरवाज','darwaz','puerta','கதவு','gate'],
+  chair:   ['chair','कुर्सी','kursi','silla','நாற்காலி'],
 };
 const TARGETLESS = new Set(['STOP','RETURN']);
 const isAscii = (s) => /^[\x00-\x7F]*$/.test(s);
