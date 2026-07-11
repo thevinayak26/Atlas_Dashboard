@@ -1524,8 +1524,9 @@ main {
   padding: 4px 15px 13px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 0;
+  overflow-y: auto;
 }
 
 /* attitude */

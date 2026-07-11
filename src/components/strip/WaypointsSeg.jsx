@@ -36,7 +36,7 @@ export default function WaypointsSeg({ ros, status, pose, loading }) {
   const send = (cmd, src) => {
     if (!cmd) { setNote(`not understood: "${src}"`); return; }
     const label = `${cmd.command}${cmd.target ? ' \u2192 ' + cmd.target : ''}`;
-    if (!pub || !connected) { setNote(`no link \u00b7 would send ${label}`); return; }
+    if (!pub || !connected) { setNote(`offline \u00b7 ${label}`); return; }
     pub.publish(new ROSLIB.Message({ data: JSON.stringify(cmd) }));
     setNote(`sent ${label}`);
   };
