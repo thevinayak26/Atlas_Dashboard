@@ -108,7 +108,7 @@ export default function WaypointsSeg({ ros, status, pose, loading }) {
             const d = pose ? Math.hypot(w.x - pose.x, w.y - pose.y) : null;
             return (
               <div className={'wp' + (i === activeIdx ? ' active' : '')} key={w.key}
-                onClick={() => { setSelIdx(i); sendWaypoint(w); }} style={{ cursor: 'pointer' }} title={`Send NAVIGATE \u2192 ${w.key}`}>
+                onClick={() => { setSelIdx(i); sendWaypoint(w); }} style={{ cursor: 'pointer' }}>
                 <span className="pin" />
                 <span className="nm">{w.name}</span>
                 {loading ? (
