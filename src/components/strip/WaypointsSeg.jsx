@@ -63,7 +63,7 @@ export default function WaypointsSeg({ ros, status, pose, loading }) {
           const data = await res.json();
           if (data.heard) setNote(`heard: ${data.heard}`);
           send(data.command ? { command: data.command, target: data.target ?? null } : null, data.heard || '(voice)');
-        } catch (err) { setNote(`voice service down (${err.message})`); }
+        } catch (err) { console.warn('voice service:', err); setNote('voice offline \u00b7 check voice_server'); }
       };
       mr.start(); mediaRef.current = mr; setRecording(true);
     } catch { setNote('mic denied'); }
@@ -101,7 +101,7 @@ export default function WaypointsSeg({ ros, status, pose, loading }) {
             <Mic on={recording} />{recording ? 'Release to send' : 'Hold to talk'}
           </button>
         )}
-        {note && <div style={s.note}>{note}</div>}
+        <div style={s.note}>{note || '\u00A0'}</div>
         <div style={{ marginTop: 6 }}>
           {WAYPOINTS.map((w, i) => {
             const d = pose ? Math.hypot(w.x - pose.x, w.y - pose.y) : null;
@@ -133,5 +133,5 @@ const s = {
   send: { padding: '5px 11px', borderRadius: 6, border: 'none', background: '#3b82f6', color: '#fff', cursor: 'pointer', fontSize: 12 },
   micBtn: { width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '7px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(0,0,0,0.25)', color: 'inherit', cursor: 'pointer', fontSize: 12, userSelect: 'none' },
   micOn: { background: 'rgba(239,68,68,0.25)', borderColor: 'rgba(239,68,68,0.6)' },
-  note: { fontSize: 11, opacity: 0.7, marginTop: 5 },
+  note: { fontSize: 11, opacity: 0.7, marginTop: 5, minHeight: 14, lineHeight: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
 };
