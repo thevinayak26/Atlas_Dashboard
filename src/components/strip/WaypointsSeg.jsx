@@ -103,7 +103,7 @@ export default function WaypointsSeg({ ros, status, pose, loading }) {
           </button>
         )}
         <div style={s.note} title={note || ''}>{note || '\u00A0'}</div>
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 6, flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {WAYPOINTS.map((w, i) => {
             const d = pose ? Math.hypot(w.x - pose.x, w.y - pose.y) : null;
             return (
