@@ -45,6 +45,9 @@ const LAYER_DEFS = [
   ['trail', 'Trail'],
   ['robot', 'Robot'],
   ['path', 'Nav2 path'],
+  ['objects', 'Objects'],
+  ['gcost', 'Global costmap'],
+  ['lcost', 'Local costmap'],
   ['grid', 'Grid'],
 ];
 

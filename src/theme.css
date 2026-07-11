@@ -406,9 +406,11 @@ main {
   padding: 14px;
   display: grid;
   gap: 14px;
-  grid-template-columns: 1.55fr 1fr;
+  /* right column: camera spans TWO rows (a 4:3 320x240 feed in a single 1fr row
+     was a cropped sliver); telemetry + topic health share the third row */
+  grid-template-columns: 1.55fr 0.5fr 0.5fr;
   grid-template-rows: 1fr 1fr 1fr 188px;
-  grid-template-areas: 'map cam' 'map tel' 'map diag' 'strip strip';
+  grid-template-areas: 'map cam cam' 'map cam cam' 'map tel diag' 'strip strip strip';
 }
 .card {
   background: var(--panel);
@@ -565,9 +567,21 @@ main {
   top: 12px;
   right: 12px;
 }
+/* expanded top-right toolbar row: [cancel] [goal flag] [layers] [close], evenly
+   spaced 46px apart (38px buttons + 8px gap); nothing overlaps the pose HUD */
 .map-nav-toggle {
   top: 12px;
-  left: 12px;
+  right: 104px;
+}
+.map-nav-cancel {
+  top: 12px;
+  right: 150px;
+  color: var(--coral);
+}
+.map-nav-cancel:hover {
+  color: var(--coral);
+  border-color: var(--coral);
+  background: color-mix(in srgb, var(--coral) 14%, transparent);
 }
 .map-btn.on {
   color: var(--accent);
@@ -595,6 +609,64 @@ main {
   box-shadow: var(--shadow-sm);
   pointer-events: none;
   animation: rise 0.25s ease;
+}
+/* confirm chip for a picked (not yet sent) Nav2 goal - same placement as the
+   hint, but INTERACTIVE: the goal publishes only from its Send button */
+.map-goalchip {
+  position: absolute;
+  z-index: 6;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 7px 5px 14px;
+  border-radius: 100px;
+  border: 1px solid var(--gold);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  backdrop-filter: blur(10px) saturate(1.3);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  animation: rise 0.25s ease;
+}
+.map-goalchip .gc-xy {
+  color: var(--gold);
+}
+.map-goalchip button {
+  border: 1px solid var(--card-edge);
+  border-radius: 100px;
+  background: var(--inset);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  line-height: 1;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.map-goalchip .gc-send {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.map-goalchip .gc-send:hover {
+  background: var(--accent-soft);
+}
+.map-goalchip .gc-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.map-goalchip .gc-cancel {
+  padding: 5px 9px;
+}
+.map-goalchip .gc-cancel:hover {
+  border-color: var(--coral);
+  color: var(--coral);
 }
 .map-controls {
   position: absolute;
@@ -758,9 +830,7 @@ main {
 
 /* ---------- WASD teleop (opt-in manual driving) ---------- */
 .teleop {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
+  position: relative;
   z-index: 60;
   display: flex;
   flex-direction: column;
@@ -1129,10 +1199,16 @@ main {
 }
 
 /* ---------- camera ---------- */
+/* Docked view is sized to the STREAM's aspect ratio (--cam-ar, set from the
+   img's naturalWidth/Height; 4:3 fallback) and centred, so the feed is never
+   cropped to a sliver - the full frame always shows, as large as the card allows. */
 .camview {
-  flex: 1;
+  flex: 0 1 auto;
+  height: calc(100% - 26px);
+  max-width: calc(100% - 26px);
+  aspect-ratio: var(--cam-ar, 4 / 3);
   position: relative;
-  margin: 13px;
+  margin: 13px auto;
   border-radius: 11px;
   overflow: hidden;
   background: repeating-linear-gradient(125deg, var(--inset) 0 9px, var(--panel-2) 9px 18px);
@@ -1142,7 +1218,9 @@ main {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain, not cover: never crop the frame (the box already matches its AR;
+     this also un-crops the fullscreen overlay) */
+  object-fit: contain;
 }
 .camnoise {
   position: absolute;
@@ -1268,6 +1346,38 @@ main {
   top: 22px;
   right: 22px;
 }
+/* source toggle (annotated :8081  <->  raw Pi :8080) sits left of the expand button */
+.cam-src {
+  top: 22px;
+  right: 62px;
+  width: auto;
+  min-width: 34px;
+  padding: 0 9px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.cam-src.on {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+}
+/* one-consumer warning, shown only while the raw Pi feed is selected */
+.cam-warn {
+  position: absolute;
+  left: 22px;
+  bottom: 20px;
+  z-index: 5;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.4px;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--inset) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
+  border-radius: 6px;
+  padding: 3px 7px;
+  pointer-events: none;
+}
 /* fullscreen overlay (body-portaled): the camera view blown up to the viewport */
 .cam-stage {
   position: fixed;
@@ -1292,6 +1402,7 @@ main {
   width: 100%;
   height: 100%;
   max-width: 1280px;
+  aspect-ratio: auto; /* fullscreen fills the viewport; img contain letterboxes */
 }
 .cam-close {
   top: clamp(16px, 4vmin, 40px);
@@ -1574,12 +1685,15 @@ main {
 }
 .hrow .k {
   color: var(--dim);
-  flex: 0 0 64px;
+  /* 48px (was 64) - the strip is 7 segs since the Semantic Link tile, and the
+     narrower rows must keep label + sparkline + value on ONE line */
+  flex: 0 0 48px;
 }
 .hrow .v {
   font-family: var(--mono);
   color: var(--txt);
   margin-left: auto;
+  white-space: nowrap;
 }
 .hrow .v.ok {
   color: var(--accent);
@@ -1589,6 +1703,7 @@ main {
 }
 .hbar {
   flex: 1;
+  min-width: 0;
   height: 4px;
   border-radius: 3px;
   background: var(--inset);
@@ -1609,15 +1724,25 @@ main {
 }
 .spark {
   flex: 1;
+  min-width: 0;
   height: 18px;
   display: block;
   overflow: visible;
 }
 .spark-empty {
   flex: 1;
+  min-width: 0;
   height: 4px;
   border-radius: 3px;
   background: var(--inset);
+}
+/* semantic-link status line ("LIVE" / "LINK LOST / semantic memory decaying") */
+.semlink-state {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  line-height: 1.35;
+  white-space: normal;
 }
 .nodes {
   display: flex;
@@ -1667,6 +1792,67 @@ main {
 .wp.active .nm {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* ---------- semantic objects list (Detected Objects) ---------- */
+.obj-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 100%;
+}
+.obj {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  transition: opacity 0.3s ease;
+}
+.obj-dot {
+  grid-row: 1 / 3;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.obj-cls {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 12px;
+  color: var(--txt);
+  text-transform: capitalize;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.obj-conf {
+  grid-column: 3;
+  grid-row: 1;
+  font-size: 10px;
+  color: var(--dim);
+  text-align: right;
+}
+.obj-xy {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 10px;
+  color: var(--mid);
+}
+.obj-age {
+  grid-column: 3;
+  grid-row: 2;
+  font-size: 10px;
+  color: var(--dim);
+  text-align: right;
+}
+.obj-empty {
+  color: var(--dim);
+  font-size: 11px;
+  text-align: center;
+  padding: 8px 0;
 }
 
 /* ---------- liquid-glass (GlassSurface) overlay content ---------- */
@@ -2011,3 +2197,5 @@ main > .glow-card:nth-child(6) {
     border-bottom: 0;
   }
 }
+
+.teleop-hud { position: absolute; top: calc(100% + 10px); right: 0; }

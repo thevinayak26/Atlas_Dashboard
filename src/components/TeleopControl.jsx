@@ -105,22 +105,36 @@ export default function TeleopControl({ ros, status }) {
     };
     const stop = () => publish(0, 0);
 
+    // Edge-triggered publishing (spec Task 4): stream commands ONLY while a control
+    // is actively engaged (a WASD key held or the joystick grabbed). On release,
+    // publish exactly ONE zero Twist, then go silent. There is NO idle keepalive:
+    // an idle Drive-ON must put ZERO traffic on /cmd_vel so it can never contaminate
+    // a CLI motor test. Holding a key still streams at PUB_MS (the robot's 0.5 s
+    // watchdog needs fresh commands), which is active driving, not idle keepalive.
+    let wasEngaged = false;
     const tick = () => {
       const h = heldRef.current;
-      const m = boostRef.current ? BOOST : 1;
       const j = joyRef.current;
-      let lin;
-      let ang;
-      if (j.active) {
-        // Joystick wins while held: push up (−screen y) = forward, push left = turn
-        // left (CCW = +angular). Magnitude is proportional, so a gentle nudge crawls.
-        lin = -j.y * LIN * m;
-        ang = -j.x * ANG * m;
-      } else {
-        lin = ((h.w ? 1 : 0) - (h.s ? 1 : 0)) * LIN * m;
-        ang = ((h.a ? 1 : 0) - (h.d ? 1 : 0)) * ANG * m;
+      const engaged = j.active || h.w || h.a || h.s || h.d;
+      if (engaged) {
+        const m = boostRef.current ? BOOST : 1;
+        let lin;
+        let ang;
+        if (j.active) {
+          // Joystick wins while held: push up (−screen y) = forward, push left = turn
+          // left (CCW = +angular). Magnitude is proportional, so a gentle nudge crawls.
+          lin = -j.y * LIN * m;
+          ang = -j.x * ANG * m;
+        } else {
+          lin = ((h.w ? 1 : 0) - (h.s ? 1 : 0)) * LIN * m;
+          ang = ((h.a ? 1 : 0) - (h.d ? 1 : 0)) * ANG * m;
+        }
+        publish(lin, ang);
+        wasEngaged = true;
+      } else if (wasEngaged) {
+        publish(0, 0); // the single stop Twist on release, then silence
+        wasEngaged = false;
       }
-      publish(lin, ang);
     };
     const timer = setInterval(tick, PUB_MS);
 
@@ -132,6 +146,7 @@ export default function TeleopControl({ ros, status }) {
         e.preventDefault();
         setHeld({ w: false, a: false, s: false, d: false });
         stop();
+        wasEngaged = false; // immediate stop already sent; don't let tick send a duplicate
         return;
       }
       if (k === 'shift') { setBoost(true); return; }
@@ -152,6 +167,7 @@ export default function TeleopControl({ ros, status }) {
       setHeld({ w: false, a: false, s: false, d: false });
       setBoost(false);
       stop();
+      wasEngaged = false;
     };
 
     window.addEventListener('keydown', onDown);

@@ -22,7 +22,7 @@ import GlassSurface from './GlassSurface';
 import GlowCard from './GlowCard';
 import Skeleton from './Skeleton';
 import { toDeg, signed } from '../lib/geometry';
-import { SAVE_MAP_SERVICE } from '../ros/topics';
+import { SAVE_MAP_SERVICE, CANCEL_NAV_SERVICE, TOPICS } from '../ros/topics';
 
 const LEGEND = [
   ['var(--map-wall)', 'Wall'],
@@ -35,21 +35,95 @@ const LEGEND = [
 ];
 
 export default function MapCard({
-  ros, status, theme, pose, coverage, loading, onStats, layers, onLayersChange,
+  ros, status, theme, pose, coverage, loading, onStats, layers, onLayersChange, objects,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [navMode, setNavMode] = useState(false); // tap-to-navigate armed (expanded only)
-  const [goalToast, setGoalToast] = useState(null); // {x,y} of the last goal, briefly
+  const [pendingGoal, setPendingGoal] = useState(null); // picked {x,y}, awaiting the confirm chip
+  const [sentGoal, setSentGoal] = useState(null); // last PUBLISHED {x,y} (map marker)
+  const [goalToast, setGoalToast] = useState(null); // transient hint message string
   const [saveState, setSaveState] = useState('idle'); // idle | saving | ok | err
+
+  // Goal coords are map-frame and MAP-SPECIFIC: a reconnect may bring a different
+  // map/origin, so both the picked point and the sent-goal marker are discarded the
+  // moment the link leaves 'connected'. Done as a render-phase derive-from-props
+  // reset (the documented pattern) rather than a setState-in-effect.
+  const [prevStatus, setPrevStatus] = useState(status);
+  if (status !== prevStatus) {
+    setPrevStatus(status);
+    if (status !== 'connected') {
+      setPendingGoal(null);
+      setSentGoal(null);
+    }
+  }
 
   // Tap-to-navigate is an EXPANDED-map tool; collapsing also disarms it (a docked
   // tap means "expand", and we don't want a stray goal on the next open). We reset
   // it in the same handlers that collapse rather than in an effect (a sync setState
   // in an effect would cascade renders).
-  const onGoalSet = useCallback((g) => {
-    setGoalToast(g);
-    setTimeout(() => setGoalToast(null), 2400);
+  const disarmNav = useCallback(() => {
+    setNavMode(false);
+    setPendingGoal(null);
   }, []);
+
+  // An armed tap PROPOSES a goal: it only fills the confirm chip. Nothing is
+  // published until the user presses Send (stray clicks can't move the robot).
+  const onGoalPick = useCallback((g) => setPendingGoal(g), []);
+  const cancelGoal = useCallback(() => setPendingGoal(null), []);
+  const confirmGoal = useCallback(() => {
+    if (!pendingGoal || !ros || status !== 'connected') return;
+    // Publish a PLAIN object - roslib v2's ESM build has no ROSLIB.Message (see
+    // TeleopControl) - and let publish() auto-advertise (ops are ordered on the
+    // one socket). ROS 2 Time uses `nanosec`; stamp 0 means "latest" to Nav2.
+    // Orientation is IDENTITY (z 0, w 1) per the goal contract - Nav2's goal
+    // checker / final rotation decides the heading, not the dashboard.
+    const goalTopic = new ROSLIB.Topic({
+      ros, name: TOPICS.goal.name, messageType: TOPICS.goal.type,
+    });
+    try {
+      goalTopic.publish({
+        header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
+        pose: {
+          position: { x: pendingGoal.x, y: pendingGoal.y, z: 0 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 },
+        },
+      });
+    } catch {
+      return; // link died mid-publish - keep the chip so the user can retry
+    }
+    setSentGoal(pendingGoal);
+    setGoalToast(`Goal sent · X ${pendingGoal.x.toFixed(2)} · Y ${pendingGoal.y.toFixed(2)}`);
+    setPendingGoal(null);
+    setTimeout(() => setGoalToast(null), 2400);
+  }, [pendingGoal, ros, status]);
+
+  // Cancel the ACTIVE Nav2 goal: calls NavigateToPose's action-cancel service
+  // with the all-zero uuid ("cancel everything"). Marker clears on success.
+  const cancelNav = useCallback(() => {
+    if (!ros || status !== 'connected') return;
+    const svc = new ROSLIB.Service({
+      ros, name: CANCEL_NAV_SERVICE.name, serviceType: CANCEL_NAV_SERVICE.type,
+    });
+    const done = (ok) => {
+      if (ok) setSentGoal(null);
+      setGoalToast(ok ? 'Nav goal cancelled' : 'Cancel failed - is Nav2 up?');
+      setTimeout(() => setGoalToast(null), 2400);
+    };
+    try {
+      svc.callService(
+        { goal_info: { goal_id: { uuid: Array(16).fill(0) }, stamp: { sec: 0, nanosec: 0 } } },
+        () => done(true),
+        () => done(false),
+      );
+    } catch {
+      done(false);
+    }
+  }, [ros, status]);
+
+  // What the canvas draws: the unconfirmed pick wins over the last sent goal.
+  const goalMarker = status === 'connected'
+    ? (pendingGoal ? { ...pendingGoal, pending: true } : sentGoal)
+    : null;
   // The camera, owned here so it survives expand/collapse and the toolbar can drive it.
   const viewRef = useRef({ cx: 0, cy: 0, k: 1, phi: 0, init: false });
   const slotRef = useRef(null);   // in-card placeholder the stage docks onto
@@ -134,7 +208,7 @@ export default function MapCard({
     if (expanded) {
       const prevOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden'; // no background scroll behind fullscreen
-      const onKey = (e) => { if (e.key === 'Escape') { setExpanded(false); setNavMode(false); } };
+      const onKey = (e) => { if (e.key === 'Escape') { setExpanded(false); disarmNav(); } };
       window.addEventListener('keydown', onKey);
       window.addEventListener('resize', syncRect);
       return () => {
@@ -171,7 +245,7 @@ export default function MapCard({
       stage?.classList.remove('morph');
       cancelAnimationFrame(raf);
     };
-  }, [expanded, syncRect]);
+  }, [expanded, syncRect, disarmNav]);
 
   const stage = createPortal(
     <div className="map-stage" ref={stageRef} data-expanded={expanded ? 'true' : 'false'}>
@@ -210,13 +284,25 @@ export default function MapCard({
         expanded={expanded}
         onRequestExpand={() => setExpanded(true)}
         navMode={navMode}
-        onGoalSet={onGoalSet}
+        onGoalPick={onGoalPick}
+        goal={goalMarker}
+        objects={objects}
       />
-      {expanded && navMode && (
+      {expanded && navMode && pendingGoal && (
+        <div className="map-goalchip" role="dialog" aria-label="Confirm Nav2 goal">
+          <span className="gc-xy">X {pendingGoal.x.toFixed(2)} · Y {pendingGoal.y.toFixed(2)}</span>
+          <button type="button" className="gc-send" onClick={confirmGoal}
+            disabled={status !== 'connected'}>
+            Send goal
+          </button>
+          <button type="button" className="gc-cancel" onClick={cancelGoal} aria-label="Cancel goal">
+            ✕
+          </button>
+        </div>
+      )}
+      {expanded && (navMode || goalToast) && !pendingGoal && (
         <div className="map-navhint">
-          {goalToast
-            ? `Goal set · X ${goalToast.x.toFixed(2)} · Y ${goalToast.y.toFixed(2)}`
-            : 'Tap the map to set a Nav2 goal'}
+          {goalToast || 'Tap the map to pick a Nav2 goal'}
         </div>
       )}
       <LayersControl
@@ -231,9 +317,11 @@ export default function MapCard({
         viewRef={viewRef}
         pose={pose}
         onExpand={() => setExpanded(true)}
-        onClose={() => { setExpanded(false); setNavMode(false); }}
+        onClose={() => { setExpanded(false); disarmNav(); }}
         navMode={navMode}
-        onToggleNav={() => setNavMode((v) => !v)}
+        onToggleNav={() => (navMode ? disarmNav() : setNavMode(true))}
+        hasGoal={!!sentGoal}
+        onCancelNav={cancelNav}
       />
       {expanded && (
         <div className="map-legend in-stage">

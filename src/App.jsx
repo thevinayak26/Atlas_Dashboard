@@ -14,6 +14,7 @@ import { useState, useEffect } from 'react';
 import { useRos } from './ros/useRos';
 import { useRobotData } from './ros/useRobotData';
 import { useRosHealth } from './ros/useRosHealth';
+import { useSemanticObjects } from './ros/useSemanticObjects';
 import { useTheme } from './hooks/useTheme';
 import { useMissionClock } from './hooks/useMissionClock';
 import { useEventLog } from './hooks/useEventLog';
@@ -24,12 +25,14 @@ import CameraCard from './components/CameraCard';
 import TelemetryCard from './components/TelemetryCard';
 import StripCard from './components/StripCard';
 import DiagCard from './components/DiagCard';
-import TeleopControl from './components/TeleopControl';
 
 const EMPTY_MAP_STATS = { pose: null, coverage: null, frontiers: null, scanHz: null };
 
 // Map overlay visibility - persisted so a chosen view survives a reload.
-const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, path: true, grid: false };
+const DEFAULT_LAYERS = {
+  scan: true, frontiers: true, trail: true, robot: true, path: true, objects: true, grid: false,
+  gcost: false, lcost: false, // Nav2 costmap overlays - off by default (opt-in bandwidth)
+};
 const LAYERS_KEY = 'atlas.mapLayers';
 function loadLayers() {
   try {
@@ -52,6 +55,7 @@ export default function App() {
   const clock = useMissionClock(status);
   const robot = useRobotData(ros, status);
   const health = useRosHealth(ros, status);
+  const { objects, link } = useSemanticObjects(ros, status);
 
   // Stats the map derives and reports up (pose/coverage/frontiers/scanHz).
   const [mapStats, setMapStats] = useState(EMPTY_MAP_STATS);
@@ -76,6 +80,7 @@ export default function App() {
         hz={robot.odomHz}
         latency={health.latencyMs}
         status={status}
+        ros={ros}
         theme={theme}
         onToggleTheme={toggle}
       />
@@ -90,6 +95,7 @@ export default function App() {
           onStats={setMapStats}
           layers={layers}
           onLayersChange={setLayers}
+          objects={objects}
         />
         <CameraCard theme={theme} />
         <TelemetryCard
@@ -102,11 +108,15 @@ export default function App() {
           theme={theme}
         />
         <StripCard
+          ros={ros}
+          status={status}
           robot={robot}
           health={health}
           scanHz={scanHz}
           events={events}
           pose={pose}
+          objects={objects}
+          link={link}
           loading={loading}
           theme={theme}
         />
@@ -120,7 +130,6 @@ export default function App() {
           theme={theme}
         />
       </main>
-      <TeleopControl ros={ros} status={status} />
     </>
   );
 }

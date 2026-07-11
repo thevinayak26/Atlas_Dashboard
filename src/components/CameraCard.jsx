@@ -1,21 +1,19 @@
 // -----------------------------------------------------------------------------
-// CameraCard.jsx - Camera tile.
+// CameraCard.jsx - Camera tile (spec Task 2).
 //
-// HONESTY (spec §1): the camera isn't wired yet (TOPICS.camera.status === 'later'),
-// so the header reads "offline" - NOT a fabricated "640×480 · 15 fps", which would
-// be a made-up spec for hardware that isn't streaming. The <img> path is ready for
-// the day a web_video_server MJPEG stream exists: flip the topic status to 'live'
-// and it renders the real feed (and could surface the stream's real resolution),
-// falling back to the placeholder on any load error.
+// DEFAULT source is the laptop fusion node's ANNOTATED (YOLO-boxed) MJPEG on :8081
+// (annotatedUrl, host = ?camhost= or wherever the dashboard is served). That is also
+// the one-consumer fix: the dashboard reads the LAPTOP, so atlas_fusion_node.py stays
+// the sole consumer of the Pi :8080. The RAW Pi feed (:8080) is available only behind
+// an explicit toggle, labelled with the one-consumer warning (opening it while fusion
+// runs adds a 2nd Pi consumer and saturates a Pi core).
 //
-// Expand-to-fullscreen: like the map card, the card carries a ⤢ control that morphs
-// the camera view out to fill the viewport (Esc or ✕ to close). The camera has no
-// canvas/ROS state to preserve, so this is a plain body-portaled overlay rendered
-// only while expanded - much simpler than the map's docked stage, same affordance.
+// Either way the <img> falls back to the honest "no signal" placeholder on load error,
+// and the ⤢ control expands the view to a body-portaled fullscreen overlay (Esc/✕).
 // -----------------------------------------------------------------------------
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { TOPICS, cameraUrl } from '../ros/topics';
+import { annotatedUrl, rawCameraUrl } from '../ros/topics';
 import GlassSurface from './GlassSurface';
 import GlowCard from './GlowCard';
 
@@ -31,20 +29,24 @@ const CloseIcon = () => (
   </svg>
 );
 
-// The camera surface itself - shared verbatim between the docked card and the
-// fullscreen overlay so they can never drift apart.
-function CamView({ expectLive, live, setLive, today, big }) {
+// The camera surface, shared verbatim between the docked card and the fullscreen
+// overlay so they can never drift apart.
+function CamView({ src, live, setLive, today, big, raw, ar, setAr }) {
   return (
-    <div className={'camview' + (big ? ' big' : '')}>
-      {expectLive && (
-        <img
-          src={cameraUrl()}
-          alt="camera feed"
-          onLoad={() => setLive(true)}
-          onError={() => setLive(false)}
-          style={{ display: live ? 'block' : 'none' }}
-        />
-      )}
+    <div className={'camview' + (big ? ' big' : '')} style={ar ? { '--cam-ar': ar } : undefined}>
+      <img
+        key={src}
+        src={src}
+        alt="camera feed"
+        onLoad={(e) => {
+          setLive(true);
+          // size the docked view to the stream's true aspect (4:3 fallback in CSS)
+          const { naturalWidth: w, naturalHeight: h } = e.target;
+          if (w && h) setAr(`${w} / ${h}`);
+        }}
+        onError={() => setLive(false)}
+        style={{ display: live ? 'block' : 'none' }}
+      />
       {!live && (
         <>
           <div className="camnoise" />
@@ -72,8 +74,8 @@ function CamView({ expectLive, live, setLive, today, big }) {
             >
               <div className="cam-glass-inner">
                 <div className="big">Awaiting feed</div>
-                <div className="sub">CAMERA · {today}</div>
-                <div className="chip">camera not installed</div>
+                <div className="sub">{raw ? 'RAW · Pi :8080' : 'ANNOTATED · :8081'} · {today}</div>
+                <div className="chip">{raw ? 'no stream on Pi :8080' : 'start atlas_fusion_node (:8081)'}</div>
               </div>
             </GlassSurface>
           </div>
@@ -82,7 +84,7 @@ function CamView({ expectLive, live, setLive, today, big }) {
       {live && (
         <div className="camstatus live">
           <span className="d" />
-          LIVE
+          {raw ? 'LIVE · RAW' : 'LIVE · YOLO'}
         </div>
       )}
     </div>
@@ -90,9 +92,11 @@ function CamView({ expectLive, live, setLive, today, big }) {
 }
 
 export default function CameraCard({ theme }) {
-  const expectLive = TOPICS.camera.status === 'live';
+  const [raw, setRaw] = useState(false); // false = annotated laptop :8081 (default)
   const [live, setLive] = useState(false);
+  const [ar, setAr] = useState(null); // stream aspect ratio, e.g. "320 / 240"
   const [expanded, setExpanded] = useState(false);
+  const src = raw ? rawCameraUrl() : annotatedUrl();
   const today = new Date()
     .toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short' })
     .toUpperCase();
@@ -110,17 +114,31 @@ export default function CameraCard({ theme }) {
     };
   }, [expanded]);
 
-  const shared = { expectLive, live, setLive, today };
+  const toggleSource = () => { setRaw((v) => !v); setLive(false); };
+  const shared = { src, live, setLive, today, raw, ar, setAr };
 
   return (
     <GlowCard id="c-cam" theme={theme}>
       <div className="head">
         <span className={'ic' + (live ? '' : ' off')} />
         <h2>Camera</h2>
-        <span className="r">{live ? 'live feed' : 'offline · no stream'}</span>
+        <span className="r">
+          {live ? (raw ? 'raw · Pi :8080' : 'annotated · :8081') : 'offline · no stream'}
+        </span>
       </div>
       <div className="cam-slot">
         <CamView {...shared} big={false} />
+        <button
+          type="button"
+          className={'map-btn cam-src' + (raw ? ' on' : '')}
+          onClick={toggleSource}
+          title={raw
+            ? 'Raw Pi feed (:8080). WARNING: a 2nd consumer of the Pi camera while fusion runs saturates a Pi core. Click for the annotated laptop feed.'
+            : 'Annotated laptop feed (:8081, YOLO boxes). Click for the raw Pi feed (:8080, adds a 2nd Pi consumer).'}
+          aria-label="Toggle camera source"
+        >
+          {raw ? 'RAW' : 'YOLO'}
+        </button>
         <button
           type="button"
           className="map-btn cam-expand"
@@ -130,6 +148,7 @@ export default function CameraCard({ theme }) {
         >
           <ExpandIcon />
         </button>
+        {raw && <div className="cam-warn">raw Pi feed · keep to ONE consumer</div>}
       </div>
 
       {expanded &&

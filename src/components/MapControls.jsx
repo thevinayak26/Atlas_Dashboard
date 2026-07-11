@@ -5,6 +5,13 @@
 // rAF loop in MapCanvas reads it next frame, so none of this triggers a React
 // re-render. Docked, only the Expand affordance shows (the map is also tap-to-
 // expand + drag/wheel navigable); expanded, the full set + a Close (Esc) shows.
+//
+// Zoom / rotate / recentre EASE instead of teleporting: each button writes a
+// TARGET (tcx/tcy/tk/tphi + anim flag) onto the shared camera, and MapCanvas's draw
+// loop glides the live camera toward it — so the toolbar feels as smooth as the
+// drag/wheel gestures. Writing targets keeps this to plain ref-property mutation
+// (the React Compiler forbids passing a ref into a helper). Moves compose off the
+// in-flight target when one is running, so rapid taps still land a full step each.
 // -----------------------------------------------------------------------------
 const K_MIN = 0.35;
 const K_MAX = 16;
@@ -22,22 +29,43 @@ const TargetIcon = () => <Svg><circle cx="12" cy="12" r="7" /><circle cx="12" cy
 const FitIcon = () => <Svg><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4" /></Svg>;
 const ExpandIcon = () => <Svg><path d="M8 3H4a1 1 0 0 0-1 1v4M16 3h4a1 1 0 0 1 1 1v4M8 21H4a1 1 0 0 1-1-1v-4M16 21h4a1 1 0 0 0 1-1v-4" /></Svg>;
 const CloseIcon = () => <Svg><path d="M6 6l12 12M18 6L6 18" /></Svg>;
-const GoalIcon = () => <Svg><path d="M12 21s-6-5.3-6-10a6 6 0 1 1 12 0c0 4.7-6 10-6 10z" /><circle cx="12" cy="11" r="2" /></Svg>;
+const GoalFlagIcon = () => <Svg><path d="M5 21V4" /><path d="M5 4h11l-3 3.5 3 3.5H5" /></Svg>;
+const StopIcon = () => <Svg><circle cx="12" cy="12" r="9" /><rect x="8.8" y="8.8" width="6.4" height="6.4" rx="1" fill="currentColor" stroke="none" /></Svg>;
 
-export default function MapControls({ expanded, viewRef, pose, onExpand, onClose, navMode, onToggleNav }) {
+export default function MapControls({
+  expanded, viewRef, pose, onExpand, onClose, navMode, onToggleNav, hasGoal, onCancelNav,
+}) {
+  // Seed the target from the in-flight target (if easing) else the live camera, so
+  // untouched axes hold their heading and the changed axis composes cleanly.
   const zoom = (f) => () => {
     const v = viewRef.current;
-    v.k = Math.max(K_MIN, Math.min(K_MAX, v.k * f));
+    const bk = v.anim ? v.tk : v.k;
+    v.tcx = v.anim ? v.tcx : v.cx;
+    v.tcy = v.anim ? v.tcy : v.cy;
+    v.tphi = v.anim ? v.tphi : v.phi;
+    v.tk = Math.max(K_MIN, Math.min(K_MAX, bk * f));
+    v.anim = true;
     v.init = true;
   };
-  const rotate = (d) => () => { viewRef.current.phi += d; };
-  const reset = () => { viewRef.current.init = false; }; // re-frames to the explored bbox
-  const centerRobot = () => {
+  const rotate = (d) => () => {
     const v = viewRef.current;
+    v.tcx = v.anim ? v.tcx : v.cx;
+    v.tcy = v.anim ? v.tcy : v.cy;
+    v.tk = v.anim ? v.tk : v.k;
+    v.tphi = (v.anim ? v.tphi : v.phi) + d;
+    v.anim = true;
+    v.init = true;
+  };
+  const reset = () => { viewRef.current.fit = true; }; // eases back to the explored-bbox fit (MapCanvas owns the framing)
+  const centerRobot = () => {
     if (!pose) return;
-    v.cx = pose.x;
-    v.cy = pose.y;
-    v.k = Math.max(v.k, 2.6);
+    const v = viewRef.current;
+    const bk = v.anim ? v.tk : v.k;
+    v.tphi = v.anim ? v.tphi : v.phi;
+    v.tcx = pose.x;
+    v.tcy = pose.y;
+    v.tk = Math.max(bk, 2.6);
+    v.anim = true;
     v.init = true;
   };
 
@@ -58,10 +86,16 @@ export default function MapControls({ expanded, viewRef, pose, onExpand, onClose
       </button>
       <button type="button" className={'map-btn map-nav-toggle' + (navMode ? ' on' : '')}
         onClick={onToggleNav} aria-pressed={navMode}
-        title={navMode ? 'Tap-to-navigate: ON (tap map to set goal)' : 'Tap-to-navigate'}
+        title={navMode ? 'Nav goal: ARMED (tap map to pick a goal)' : 'Set a Nav2 goal'}
         aria-label="Toggle tap-to-navigate">
-        <GoalIcon />
+        <GoalFlagIcon />
       </button>
+      {hasGoal && (
+        <button type="button" className="map-btn map-nav-cancel" onClick={onCancelNav}
+          title="Cancel the active Nav2 goal" aria-label="Cancel Nav2 goal">
+          <StopIcon />
+        </button>
+      )}
       <div className="map-controls" role="toolbar" aria-label="Map view controls">
         <button type="button" className="map-btn" onClick={zoom(K_STEP)} title="Zoom in" aria-label="Zoom in"><PlusIcon /></button>
         <button type="button" className="map-btn" onClick={zoom(1 / K_STEP)} title="Zoom out" aria-label="Zoom out"><MinusIcon /></button>

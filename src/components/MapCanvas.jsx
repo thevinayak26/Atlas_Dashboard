@@ -33,6 +33,8 @@ import { useEffect, useRef } from 'react';
 import * as ROSLIB from 'roslib';
 import { TOPICS, SUB_OPTS } from '../ros/topics';
 import { quatToYaw } from '../lib/geometry';
+import { classGroup } from '../lib/semantic';
+import { drawObjectSprite } from '../lib/mapSprites';
 
 const PAD = 14;          // px gutter around the fitted map (at k = 1)
 const TRAIL_MAX = 400;   // trail points kept
@@ -44,7 +46,10 @@ const TAP_MS = 350;
 const ROBOT_RADIUS_M = 0.12; // real chassis radius (m); rover is drawn to true footprint
 
 // Layer visibility defaults (overridden by the persisted set passed from App).
-const DEFAULT_LAYERS = { scan: true, frontiers: true, trail: true, robot: true, path: true, grid: false };
+const DEFAULT_LAYERS = {
+  scan: true, frontiers: true, trail: true, robot: true, path: true, objects: true, grid: false,
+  gcost: false, lcost: false,
+};
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -67,7 +72,8 @@ const roundRect = (ctx, x, y, w, h, r) => {
 
 export default function MapCanvas({
   ros, status, theme, onStats, layers = DEFAULT_LAYERS,
-  view: viewProp, expanded = false, onRequestExpand, navMode = false, onGoalSet,
+  view: viewProp, expanded = false, onRequestExpand, navMode = false, onGoalPick,
+  goal = null, objects,
 }) {
   const canvasRef = useRef(null);
   const dirtyRef = useRef(false); // theme changed → bitmap needs re-rasterising
@@ -84,13 +90,21 @@ export default function MapCanvas({
   const expandedRef = useRef(expanded);
   const requestExpandRef = useRef(onRequestExpand);
   const navModeRef = useRef(navMode);
-  const onGoalSetRef = useRef(onGoalSet);
+  const onGoalPickRef = useRef(onGoalPick);
   useEffect(() => {
     expandedRef.current = expanded;
     requestExpandRef.current = onRequestExpand;
     navModeRef.current = navMode;
-    onGoalSetRef.current = onGoalSet;
-  }, [expanded, onRequestExpand, navMode, onGoalSet]);
+    onGoalPickRef.current = onGoalPick;
+  }, [expanded, onRequestExpand, navMode, onGoalPick]);
+
+  // Nav2 goal marker ({x, y, pending}) - the picked-but-unconfirmed point (gold,
+  // dashed) or the last SENT goal (path green). Read by the draw loop via a ref,
+  // like layers/objects, so chip interactions never rebuild the subscriptions.
+  const goalRef = useRef(goal);
+  useEffect(() => {
+    goalRef.current = goal;
+  }, [goal]);
 
   // Idle cursor signals the mode: crosshair when arming a Nav2 goal, grab otherwise.
   useEffect(() => {
@@ -104,6 +118,13 @@ export default function MapCanvas({
   useEffect(() => {
     layersRef.current = layers;
   }, [layers]);
+
+  // Semantic objects (Task 3B): read by the draw loop via a ref so a new snapshot
+  // (~5 Hz) never tears down/rebuilds the ROS subscriptions - mirrors layersRef.
+  const objectsRef = useRef(objects);
+  useEffect(() => {
+    objectsRef.current = objects;
+  }, [objects]);
 
   // A theme flip changes the map colours; flag it and let the rAF loop re-raster
   // the cached map message (no resubscribe, no render-phase work).
@@ -121,6 +142,12 @@ export default function MapCanvas({
     let mapMsg = null;     // last raw /map (for re-raster on theme change)
     let meta = null;       // { width, height, resolution, originX, originY, known }
     let wallRects = [];    // merged wall rectangles (bitmap px) for 2.5D extrusion
+    // Nav2 costmap overlays: each is rasterised ONCE per message (<=2 Hz on the
+    // wire via throttle_rate) into an offscreen RGBA bitmap; the frame loop only
+    // does a transformed drawImage. Subscribed lazily while its layer toggle is
+    // ON so a hidden overlay costs the Pi (and the WiFi link) nothing.
+    const costmaps = { g: null, l: null };  // key -> { bitmap, meta }
+    const cmTopics = { g: null, l: null };  // key -> live ROSLIB.Topic (or null)
     let scan = null;       // latest LaserScan
     let pose = null;       // effective robot pose { x, y, yaw } in the MAP frame
     let lastTfPose = 0;    // when TF last yielded a pose (TF is preferred source)
@@ -136,6 +163,10 @@ export default function MapCanvas({
     let lastT = null;      // most recent transform, for gesture hit-testing
     const pointers = new Map(); // active pointerId -> { x, y } in canvas px
     let gesture = null;    // { mode:'pan'|'pinch', … }
+    // Toolbar moves set a camera target (view.current.t*) + anim flag; this factor
+    // eases the live camera toward it each frame (drag/wheel clear anim to take over).
+    const easeReduce = typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
 
     // Cached theme colours: getComputedStyle is costly, so read the CSS vars ONCE
     // per theme change (flagged by dirtyRef) instead of ~8x every animation frame.
@@ -145,9 +176,11 @@ export default function MapCanvas({
       accent: cssVar('--accent'),
       sky: cssVar('--sky'),
       gold: cssVar('--gold'),
+      coral: cssVar('--coral'),
       path: cssVar('--path'),
       cardEdge: cssVar('--card-edge'),
       dim: cssVar('--dim'),
+      txt: cssVar('--txt'),
       mapWall: cssVar('--map-wall'), // base colour for the extruded 2.5D walls
     });
 
@@ -298,6 +331,69 @@ export default function MapCanvas({
       detectFrontiers(data, w, h, msg.info);
     };
 
+    // Rasterise a Nav2 costmap (OccupancyGrid, 0 free … 100 lethal, -1 unknown)
+    // into an RGBA bitmap: free/unknown fully transparent, low cost cool blue
+    // rising to lethal red, alpha baked in (~0.25 → ~0.6, lethal pops harder).
+    // Same y-flip as the map raster. Colours are absolute (a cost scale), not
+    // themed, so no re-raster is needed on theme change.
+    const rasterizeCostmap = (msg, key) => {
+      const w = msg.info?.width;
+      const h = msg.info?.height;
+      const data = msg.data;
+      if (!data || typeof data.length !== 'number' || !w || !h) return;
+      let cvs = costmaps[key]?.bitmap;
+      if (!cvs || cvs.width !== w || cvs.height !== h) {
+        cvs = document.createElement('canvas');
+        cvs.width = w;
+        cvs.height = h;
+      }
+      const c2 = cvs.getContext('2d');
+      const img = c2.createImageData(w, h);
+      const n = w * h;
+      for (let i = 0; i < n; i++) {
+        const v = i < data.length ? data[i] : -1;
+        if (v <= 0) continue; // unknown / free stays transparent - map shows through
+        const x = i % w;
+        const y = h - 1 - ((i / w) | 0); // flip Y (grid origin is bottom-left)
+        const p = (y * w + x) * 4;
+        const t = v >= 100 ? 1 : v / 100;
+        img.data[p] = 70 + 185 * t;      // blue (low) → red (lethal)
+        img.data[p + 1] = 130 - 85 * t;
+        img.data[p + 2] = 255 - 210 * t;
+        img.data[p + 3] = v >= 99 ? 195 : 60 + 95 * t;
+      }
+      c2.putImageData(img, 0, 0);
+      costmaps[key] = {
+        bitmap: cvs,
+        meta: {
+          width: w,
+          height: h,
+          resolution: msg.info.resolution,
+          originX: msg.info.origin.position.x,
+          originY: msg.info.origin.position.y,
+          frame: (msg.header?.frame_id || 'map').replace(/^\//, ''),
+        },
+      };
+    };
+
+    // Lazily (un)subscribe a costmap with the layer toggle: ON creates the topic
+    // (rosbridge re-delivers the latched grid immediately), OFF tears it down and
+    // clears the cached bitmap so the overlay vanishes at once.
+    const CM_DEFS = { g: TOPICS.globalCostmap, l: TOPICS.localCostmap };
+    const ensureCostmapSub = (key, on) => {
+      if (on && !cmTopics[key]) {
+        const t = new ROSLIB.Topic({
+          ros, name: CM_DEFS[key].name, messageType: CM_DEFS[key].type, ...SUB_OPTS.costmap,
+        });
+        t.subscribe((m) => rasterizeCostmap(m, key));
+        cmTopics[key] = t;
+      } else if (!on && cmTopics[key]) {
+        try { cmTopics[key].unsubscribe(); } catch { /* socket gone */ }
+        cmTopics[key] = null;
+        costmaps[key] = null;
+      }
+    };
+
     // world (m) ↔ bitmap pixel (y-down, matches the rasterised offscreen grid)
     const worldToPx = (wx, wy) => [
       (wx - meta.originX) / meta.resolution,
@@ -372,6 +468,8 @@ export default function MapCanvas({
 
     const onPointerDown = (e) => {
       if (!lastT || !meta) return;
+      // A finger touch takes over from any easing/coasting camera move.
+      view.current.anim = false; view.current.fit = false; view.current.momentum = false;
       try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
       const [x, y] = canvasXY(e);
       pointers.set(e.pointerId, { x, y });
@@ -394,6 +492,19 @@ export default function MapCanvas({
       if (gesture && gesture.mode === 'pan' && pointers.size === 1) {
         if (Math.hypot(x - gesture.downX, y - gesture.downY) > TAP_PX) gesture.moved = true;
         anchorPx(gesture.gpx, gesture.gpy, x, y, lastT.s, view.current.phi);
+        // Track centre velocity (world units/ms, lightly smoothed) for flick momentum.
+        const nowT = performance.now();
+        const cx = view.current.cx;
+        const cy = view.current.cy;
+        if (gesture.pt != null) {
+          const dt = nowT - gesture.pt;
+          if (dt > 0) {
+            const a = 0.5;
+            gesture.vx = (1 - a) * (gesture.vx || 0) + a * ((cx - gesture.pcx) / dt);
+            gesture.vy = (1 - a) * (gesture.vy || 0) + a * ((cy - gesture.pcy) / dt);
+          }
+        }
+        gesture.pcx = cx; gesture.pcy = cy; gesture.pt = nowT;
       } else if (gesture && gesture.mode === 'pinch' && pointers.size >= 2) {
         const p0 = pointers.get(gesture.ids[0]);
         const p1 = pointers.get(gesture.ids[1]);
@@ -432,9 +543,13 @@ export default function MapCanvas({
       const wasPan = gesture && gesture.mode === 'pan' && gesture.id === e.pointerId;
       const tap = wasPan && !gesture.moved && performance.now() - gesture.downT < TAP_MS;
       const [ux, uy] = canvasXY(e);
+      // Snapshot the flick velocity before the gesture is torn down (fresh + real move).
+      const flick = wasPan && gesture.moved && !easeReduce
+        ? { vx: gesture.vx || 0, vy: gesture.vy || 0, t: gesture.pt || 0 }
+        : null;
       pointers.delete(e.pointerId);
       if (tap && navModeRef.current && expandedRef.current) {
-        sendGoal(ux, uy); // armed nav goal on the (expanded) map → publish /goal_pose
+        pickGoal(ux, uy); // armed tap on the (expanded) map → propose a goal (confirm chip)
       } else if (tap && !expandedRef.current && requestExpandRef.current) {
         requestExpandRef.current(); // a clean tap on the docked map → expand
       }
@@ -446,11 +561,28 @@ export default function MapCanvas({
       } else if (pointers.size === 0) {
         gesture = null;
         canvas.style.cursor = navModeRef.current ? 'crosshair' : 'grab';
+        // Launch a coasting flick if the release was recent and fast enough. The
+        // camera centre is in world metres but lastT.s is screen-px per BITMAP-pixel,
+        // so px/metre = s / resolution — used to judge/cap the flick in screen space.
+        if (flick && performance.now() - flick.t < 60) {
+          let vx = flick.vx * 16.7; // world metres/ms → per ~60fps frame
+          let vy = flick.vy * 16.7;
+          const pxPerM = (lastT && meta) ? lastT.s / meta.resolution : 1;
+          const spd = Math.hypot(vx, vy) * pxPerM; // screen px/frame
+          const CAP = 45;
+          if (spd > CAP) { const r = CAP / spd; vx *= r; vy *= r; }
+          if (spd > 6) {
+            const cam = view.current;
+            cam.mvx = vx; cam.mvy = vy; cam.momentum = true;
+          }
+        }
       }
     };
 
     const onWheel = (e) => {
       if (!lastT || !meta) return;
+      // Wheel zoom overrides any easing/coasting camera move.
+      view.current.anim = false; view.current.fit = false; view.current.momentum = false;
       e.preventDefault();
       const [x, y] = canvasXY(e);
       const [gpx, gpy] = screenToPx(lastT, x, y);
@@ -461,11 +593,94 @@ export default function MapCanvas({
       anchorPx(gpx, gpy, x, y, lastT.sFit * k, view.current.phi); // keep cursor world fixed
     };
 
+    // ---- semantic object sprites (Task 3B, 3D) ----
+    // Per-object animation state (persists across frames): a smoothed world position
+    // (so 5 Hz detections move smoothly at 60 fps), a walk phase, and a speed estimate
+    // that decides standing vs walking for people.
+    const spriteState = new Map(); // id -> { x, y, phase, speed }
+    let lastIconT = 0;
+    const OBJ_MAX = 20;
+    const drawObjectIcons = (ctx2, T2) => {
+      const objs = objectsRef.current;
+      const nowT = performance.now();
+      const dt = lastIconT ? Math.min(0.1, (nowT - lastIconT) / 1000) : 0.016;
+      lastIconT = nowT;
+      if (!objs || !objs.length || !T2) { spriteState.clear(); return; }
+      const r = clamp(11 + T2.s * 0.6, 14, 30); // sprite base size, grows with zoom
+      const seen = new Set();
+      // Project + smooth, then paint far→near so nearer sprites overlap correctly.
+      const items = objs.slice(0, OBJ_MAX).map((o) => {
+        seen.add(o.id);
+        let st = spriteState.get(o.id);
+        if (!st) { st = { x: o.x, y: o.y, phase: 0, speed: 0 }; spriteState.set(o.id, st); }
+        const a = 0.28; // position smoothing toward the latest detection
+        const dx = (o.x - st.x) * a;
+        const dy = (o.y - st.y) * a;
+        st.x += dx; st.y += dy;
+        const inst = Math.hypot(dx, dy) / Math.max(dt, 1e-3); // m/s of the smoothed dot
+        st.speed = st.speed * 0.75 + inst * 0.25;
+        const walking = st.speed > 0.06;
+        if (walking) st.phase += dt * 9; // stride cadence
+        const [px, py] = T2.toScreen(st.x, st.y);
+        const grp = classGroup(o.cls);
+        const hex = grp === 'living' ? palette.coral : grp === 'furniture' ? palette.sky : palette.gold;
+        return { o, px, py, rgb: hexToRgb(hex), walking, phase: st.phase };
+      });
+      items.sort((p, q) => p.py - q.py);
+      ctx2.save();
+      for (const it of items) {
+        drawObjectSprite(ctx2, it.o.cls, it.px, it.py, r, it.rgb, it.o.opacity, it.walking, it.phase);
+      }
+      ctx2.restore();
+      // Drop state for objects that expired.
+      for (const id of spriteState.keys()) if (!seen.has(id)) spriteState.delete(id);
+    };
+
     const draw = () => {
       const cv = canvasRef.current;
       if (!cv) {
         raf = requestAnimationFrame(draw);
         return;
+      }
+      // Reset/fit request from the toolbar: the fit framing (bbox centre, k=1, phi=0)
+      // is only known here, so the button raises `fit` and we turn it into an eased
+      // target toward the same view makeTransform would snap to.
+      const cam = view.current;
+      if (cam.fit && meta) {
+        const b = meta.known || { x0: 0, y0: 0, x1: meta.width, y1: meta.height };
+        cam.tcx = meta.originX + ((b.x0 + b.x1) / 2) * meta.resolution;
+        cam.tcy = meta.originY + (meta.height - (b.y0 + b.y1) / 2) * meta.resolution;
+        cam.tk = 1;
+        cam.tphi = 0;
+        cam.anim = true;
+        cam.fit = false;
+      }
+      // Ease the camera toward a toolbar target (set by MapControls). Exponential
+      // ease-out: most of the motion is in the first frames, then it settles and
+      // clears the flag. Reduced-motion (or being effectively there) snaps at once.
+      if (cam.anim) {
+        cam.momentum = false; // a toolbar move wins over any coasting flick
+        const s = easeReduce ? 1 : 0.3;
+        cam.cx += (cam.tcx - cam.cx) * s;
+        cam.cy += (cam.tcy - cam.cy) * s;
+        cam.k += (cam.tk - cam.k) * s;
+        cam.phi += (cam.tphi - cam.phi) * s;
+        if (easeReduce
+          || (Math.abs(cam.tk - cam.k) < 1e-3
+            && Math.abs(cam.tphi - cam.phi) < 1e-4
+            && Math.hypot(cam.tcx - cam.cx, cam.tcy - cam.cy) < 1e-3)) {
+          cam.cx = cam.tcx; cam.cy = cam.tcy; cam.k = cam.tk; cam.phi = cam.tphi;
+          cam.anim = false;
+        }
+      } else if (cam.momentum && pointers.size === 0) {
+        // Coast after a flick-pan: decay the centre velocity (world units/frame) and
+        // stop once it slows below ~0.5 px/frame on screen. Cancelled by any pointer.
+        cam.cx += cam.mvx;
+        cam.cy += cam.mvy;
+        cam.mvx *= 0.88;
+        cam.mvy *= 0.88;
+        const pxPerM = (lastT && meta) ? lastT.s / meta.resolution : 1;
+        if (Math.hypot(cam.mvx, cam.mvy) * pxPerM < 0.5) cam.momentum = false;
       }
       if (dirtyRef.current || !palette) {
         palette = readPalette(); // theme changed (or first frame): refresh colours
@@ -490,6 +705,8 @@ export default function MapCanvas({
       const T = makeTransform(cssW, cssH);
       lastT = T;
       const L = layersRef.current;
+      ensureCostmapSub('g', !!L.gcost);
+      ensureCostmapSub('l', !!L.lcost);
       if (T && bitmap) {
         const { accent, sky, gold, path: pathCol } = palette;
 
@@ -502,6 +719,43 @@ export default function MapCanvas({
         ctx.translate(-T.cpx, -T.cpy);
         ctx.drawImage(bitmap, 0, 0);
         ctx.restore();
+
+        // Nav2 costmap overlays (global under local), painted between the floor
+        // and the 3D walls so inflation reads as colour on the ground. Each grid
+        // is placed by its own origin/resolution in map-bitmap px space; an
+        // odom-frame grid (the local costmap) is additionally moved by the live
+        // map->odom TF. If that transform lags (the known 1-3 s WiFi delay) the
+        // window shows slightly offset while driving - a frame artifact, not a
+        // bug - and if it is briefly missing we draw at the last identity rather
+        // than freezing the frame.
+        for (const key of ['g', 'l']) {
+          if (!(key === 'g' ? L.gcost : L.lcost)) continue;
+          const cm = costmaps[key];
+          if (!cm) continue;
+          const off = cm.meta.frame === 'map'
+            ? { x: 0, y: 0, yaw: 0 }
+            : lookupPose(cm.meta.frame, 'map') || { x: 0, y: 0, yaw: 0 };
+          const k = cm.meta.resolution / meta.resolution;
+          ctx.save();
+          ctx.imageSmoothingEnabled = false;
+          ctx.translate(T.Cx, T.Cy);
+          ctx.rotate(T.phi);
+          ctx.scale(T.s, T.s);
+          ctx.translate(-T.cpx, -T.cpy);
+          // frame origin in map px, then a world-yaw rotation (negated: px space
+          // is y-down), then the grid's own origin offset inside that frame
+          const [fpx, fpy] = worldToPx(off.x, off.y);
+          ctx.translate(fpx, fpy);
+          ctx.rotate(-off.yaw);
+          ctx.drawImage(
+            cm.bitmap,
+            cm.meta.originX / meta.resolution,
+            -(cm.meta.originY + cm.meta.height * cm.meta.resolution) / meta.resolution,
+            cm.meta.width * k,
+            cm.meta.height * k,
+          );
+          ctx.restore();
+        }
 
         // 2.5D walls: extrude each merged wall rectangle into a solid block using an
         // OBLIQUE (cavalier) projection — the cap is the base shifted up-and-right in
@@ -704,6 +958,37 @@ export default function MapCanvas({
           ctx.stroke();
         }
 
+        // Nav2 goal marker: the picked-but-unconfirmed point (gold, dashed ring)
+        // or the last SENT goal (path green, same semantics as the plan's goal
+        // dot). World-fixed like every overlay, so it tracks pan/zoom/rotate and
+        // shows docked too. MapCard owns the value; it is never cached across
+        // connections (rule: goal coords are map-specific).
+        const gm = goalRef.current;
+        if (gm) {
+          const [sx, sy] = T.toScreen(gm.x, gm.y);
+          const col = gm.pending ? gold : pathCol;
+          ctx.save();
+          ctx.strokeStyle = col;
+          ctx.fillStyle = col;
+          ctx.lineWidth = 2;
+          if (gm.pending) ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.arc(sx, sy, 9, 0, 7);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.arc(sx, sy, 2.6, 0, 7);
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            ctx.moveTo(sx + ax * 6, sy + ay * 6);
+            ctx.lineTo(sx + ax * 13, sy + ay * 13);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+
         // frontier markers (toggleable)
         if (L.frontiers) for (const [fx, fy] of frontiers) {
           const [sx, sy] = T.toScreen(fx, fy);
@@ -841,6 +1126,10 @@ export default function MapCanvas({
           ctx.fillStyle = gl;
           ctx.beginPath(); ctx.arc(px2, py2, R * 0.42, 0, 7); ctx.fill();
         }
+
+        // semantic detection icons on top of everything (Task 3B, toggleable)
+        if (L.objects) drawObjectIcons(ctx, T);
+        else spriteState.clear();
       } else {
         ctx.fillStyle = palette.dim;
         ctx.font = '13px monospace';
@@ -930,34 +1219,21 @@ export default function MapCanvas({
     const tfStaticTopic = new ROSLIB.Topic({
       ros, name: TOPICS.tfStatic.name, messageType: TOPICS.tfStatic.type,
     });
-    // Tap-to-navigate publisher (gated by navMode). Publish a PLAIN object — roslib
-    // v2's ESM build has no ROSLIB.Message (see TeleopControl) — and let publish()
-    // auto-advertise. ROS 2 Time uses `nanosec`; stamp 0 means "latest" to Nav2.
-    const goalTopic = new ROSLIB.Topic({
-      ros, name: TOPICS.goal.name, messageType: TOPICS.goal.type,
-    });
-    // bitmap px → world (m): exact inverse of worldToPx, used to turn a tap into a goal.
+    // Tap-to-navigate PICK (gated by navMode): a tap is converted to map-frame
+    // metres here - the exact inverse of the render transform, using the live
+    // /map metadata (origin, resolution) - and reported UP. MapCard shows the
+    // confirm chip and owns the actual /goal_pose publish, so nothing goes on
+    // the wire from a tap alone.
+    // bitmap px → world (m): exact inverse of worldToPx.
     const pxToWorld = (gpx, gpy) => [
       meta.originX + gpx * meta.resolution,
       meta.originY + (meta.height - gpy) * meta.resolution,
     ];
-    const sendGoal = (sx, sy) => {
-      if (!lastT || !meta) return;
+    const pickGoal = (sx, sy) => {
+      if (!lastT || !meta) return; // no real occupancy grid yet - nothing to convert against
       const [gpx, gpy] = screenToPx(lastT, sx, sy);
       const [wx, wy] = pxToWorld(gpx, gpy);
-      // Face the goal along robot→target so the rover drives forward into it; if we
-      // have no pose yet, leave it facing +x (yaw 0).
-      const yaw = pose ? Math.atan2(wy - pose.y, wx - pose.x) : 0;
-      try {
-        goalTopic.publish({
-          header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
-          pose: {
-            position: { x: wx, y: wy, z: 0 },
-            orientation: { x: 0, y: 0, z: Math.sin(yaw / 2), w: Math.cos(yaw / 2) },
-          },
-        });
-        if (onGoalSetRef.current) onGoalSetRef.current({ x: wx, y: wy });
-      } catch { /* link gone mid-publish - ignore, the user can re-tap */ }
+      if (onGoalPickRef.current) onGoalPickRef.current({ x: wx, y: wy });
     };
 
     mapTopic.subscribe((msg) => rasterize(msg));
@@ -1018,7 +1294,8 @@ export default function MapCanvas({
       try { planTopic.unsubscribe(); } catch { /* gone */ }
       try { tfTopic.unsubscribe(); } catch { /* gone */ }
       try { tfStaticTopic.unsubscribe(); } catch { /* gone */ }
-      try { goalTopic.unadvertise(); } catch { /* never advertised / gone */ }
+      try { cmTopics.g?.unsubscribe(); } catch { /* gone */ }
+      try { cmTopics.l?.unsubscribe(); } catch { /* gone */ }
     };
   }, [ros, status, onStats, view]);
 

@@ -5,11 +5,13 @@
 import AttitudeSeg from './strip/AttitudeSeg';
 import UltrasonicSeg from './strip/UltrasonicSeg';
 import EventStreamSeg from './strip/EventStreamSeg';
+import ObjectsSeg from './strip/ObjectsSeg';
+import SemanticLinkSeg from './strip/SemanticLinkSeg';
 import SystemHealthSeg from './strip/SystemHealthSeg';
 import WaypointsSeg from './strip/WaypointsSeg';
 import GlowCard from './GlowCard';
 
-export default function StripCard({ robot, health, scanHz, events, pose, loading, theme }) {
+export default function StripCard({ ros, status, robot, health, scanHz, events, pose, objects, link, loading, theme }) {
   return (
     <GlowCard id="c-strip" theme={theme}>
       <AttitudeSeg
@@ -21,6 +23,8 @@ export default function StripCard({ robot, health, scanHz, events, pose, loading
       />
       <UltrasonicSeg />
       <EventStreamSeg events={events} loading={loading} />
+      <ObjectsSeg objects={objects} loading={loading} />
+      <SemanticLinkSeg link={link} />
       <SystemHealthSeg
         latencyMs={health.latencyMs}
         latencyHistory={health.history}
@@ -30,7 +34,7 @@ export default function StripCard({ robot, health, scanHz, events, pose, loading
         healthOk={health.ok}
         loading={loading}
       />
-      <WaypointsSeg pose={pose} loading={loading} />
+      <WaypointsSeg ros={ros} status={status} pose={pose} loading={loading} />
     </GlowCard>
   );
 }

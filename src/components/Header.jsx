@@ -5,6 +5,7 @@
 // ATLAS acronym on hover (after a beat) or tap.
 // -----------------------------------------------------------------------------
 import { useState } from 'react';
+import TeleopControl from './TeleopControl';
 
 const LINK = {
   connected: { cls: 'accent', label: 'Linked', blip: '' },
@@ -13,7 +14,7 @@ const LINK = {
   down: { cls: 'coral', label: 'Offline', blip: 'coral' },
 };
 
-export default function Header({ clock, mode, hz, latency, status, theme, onToggleTheme }) {
+export default function Header({ clock, mode, hz, latency, status, theme, onToggleTheme, ros }) {
   const link = LINK[status] || LINK.down;
   const linkColor =
     link.cls === 'accent' ? 'var(--accent)' : link.cls === 'gold' ? 'var(--gold)' : 'var(--coral)';
@@ -44,6 +45,7 @@ export default function Header({ clock, mode, hz, latency, status, theme, onTogg
         Mission&nbsp;T+&nbsp;<b>{clock}</b>
       </div>
       <div className="spacer" />
+      <TeleopControl ros={ros} status={status} />
       <div className="pill mode-pill">
         <span className="k">Mode</span>
         <span className="v">{mode}</span>
