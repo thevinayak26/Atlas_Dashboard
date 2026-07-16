@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as ROSLIB from 'roslib';
 import { TOPICS } from '../ros/topics';
-import { parseCommand } from '../lib/commandParser';
 
 const params = new URLSearchParams(window.location.search);
 const VOICE_HOST = params.get('voicehost') || window.location.hostname || 'localhost';
 const VOICE_PORT = params.get('voiceport') || '5005';
 const TRANSCRIBE_URL = `http://${VOICE_HOST}:${VOICE_PORT}/transcribe`;
+const PARSE_URL = `http://${VOICE_HOST}:${VOICE_PORT}/parse`;
 
 const MicIcon = ({ on }) => (
   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
@@ -16,6 +16,18 @@ const MicIcon = ({ on }) => (
   </svg>
 );
 
+// Turns {command, direction, distance, angle} into a short display string.
+function describe(cmd) {
+  if (!cmd || !cmd.command) return '';
+  switch (cmd.command) {
+    case 'MOVE': return `${cmd.direction} ${cmd.distance}m`;
+    case 'TURN': return `${cmd.direction} ${cmd.angle}\u00b0`;
+    case 'STOP': return 'STOP';
+    case 'CANCEL': return 'CANCEL';
+    default: return cmd.command;
+  }
+}
+
 export default function CommandCard({ ros, status }) {
   const connected = status === 'connected';
   const [mode, setMode] = useState('text');
@@ -23,6 +35,7 @@ export default function CommandCard({ ros, status }) {
   const [recording, setRecording] = useState(false);
   const [last, setLast] = useState(null);
   const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const pub = useMemo(() => {
     if (!ros) return null;
@@ -33,14 +46,35 @@ export default function CommandCard({ ros, status }) {
   const chunksRef = useRef([]);
 
   const publish = (cmd, sourceText) => {
-    if (!cmd) { setNote(`not understood: "${sourceText}"`); return; }
+    if (!cmd || !cmd.command) { setNote(`not understood: "${sourceText}"`); return; }
     if (!pub || !connected) { setNote('no ROS link; command not sent'); setLast(cmd); return; }
     pub.publish(new ROSLIB.Message({ data: JSON.stringify(cmd) }));
     setLast(cmd);
-    setNote(`sent: ${cmd.command}${cmd.target ? ' -> ' + cmd.target : ''}`);
+    setNote(`sent: ${describe(cmd)}`);
   };
 
-  const sendText = () => { const t = text.trim(); if (!t) return; publish(parseCommand(t), t); setText(''); };
+  const sendText = async () => {
+    const t = text.trim();
+    if (!t) return;
+    setText('');
+    setBusy(true);
+    setNote('parsing\u2026');
+    try {
+      const res = await fetch(PARSE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: t }),
+      });
+      if (!res.ok) throw new Error(`service ${res.status}`);
+      const data = await res.json();
+      const { heard, ...cmd } = data;
+      publish(cmd.command ? cmd : null, heard || t);
+    } catch (err) {
+      setNote(`parser unreachable (${err.message})`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const startRec = async () => {
     setNote('');
@@ -59,8 +93,9 @@ export default function CommandCard({ ros, status }) {
           const res = await fetch(TRANSCRIBE_URL, { method: 'POST', body: fd });
           if (!res.ok) throw new Error(`service ${res.status}`);
           const data = await res.json();
-          if (data.heard) setNote(`heard: ${data.heard}`);
-          publish(data.command ? { command: data.command, target: data.target ?? null } : null, data.heard || '(voice)');
+          const { heard, ...cmd } = data;
+          if (heard) setNote(`heard: ${heard}`);
+          publish(cmd.command ? cmd : null, heard || '(voice)');
         } catch (err) { setNote(`voice service unreachable (${err.message}); try Text mode`); }
       };
       mr.start(); mediaRef.current = mr; setRecording(true);
@@ -83,8 +118,8 @@ export default function CommandCard({ ros, status }) {
       {mode === 'text' ? (
         <div style={styles.inputRow}>
           <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendText()}
-            placeholder='e.g. "go to the kitchen" / "रसोई में जाओ"' style={styles.input} />
-          <button onClick={sendText} style={styles.send} disabled={!text.trim()}>Send</button>
+            placeholder='e.g. "move forward 2 meters" / "turn left 90"' style={styles.input} disabled={busy} />
+          <button onClick={sendText} style={styles.send} disabled={!text.trim() || busy}>Send</button>
         </div>
       ) : (
         <div style={styles.inputRow}>
@@ -97,7 +132,7 @@ export default function CommandCard({ ros, status }) {
       )}
       <div style={styles.note}>
         {note}
-        {last && <span style={styles.last}> last: {last.command}{last.target ? ` -> ${last.target}` : ''}</span>}
+        {last && <span style={styles.last}> last: {describe(last)}</span>}
       </div>
     </div>
   );

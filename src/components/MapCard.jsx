@@ -81,6 +81,7 @@ export default function MapCard({
       ros, name: TOPICS.goal.name, messageType: TOPICS.goal.type,
     });
     try {
+      console.log("PUBLISHING GOAL", pendingGoal);
       goalTopic.publish({
         header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
         pose: {
