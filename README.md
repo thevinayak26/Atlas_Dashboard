@@ -79,3 +79,23 @@ React snapshot at 5 Hz.
 `npm run lint && npm run build` must be clean. UI changes are verified in a real
 browser (headless Chrome via puppeteer) against `fake_publisher` — canvas pixels
 and tile text are asserted, not just "it compiled".
+
+## Portfolio and contribution overview
+
+```mermaid
+flowchart TD
+    A["ROS 2 robot or synthetic test publisher"] --> B["rosbridge WebSocket"]
+    B --> C["Topic subscriptions and sampled state"]
+    C --> D["React telemetry cards"]
+    B --> E["Canvas map and scan rendering"]
+    F["Destination controls"] --> G["Command parser endpoint"]
+    G --> B
+```
+
+## Demo and verification
+
+The existing Running section provides the development setup, including the clearly labeled synthetic topic publisher. Use `npm ci`, then `npm run lint` and `npm run build` for local verification. View the dashboard using `npm run dev`. The README documents the intended 60 fps rendering architecture and 5 Hz state sampling; these are design targets/cadences, not performance measurements collected during this update. No synthetic-publisher screenshot is represented as a real robot capture.
+
+## Team contribution
+
+Yash Raj's documented contributions include the [dashboard import and destination tile](https://github.com/thevinayak26/Atlas_Dashboard/commit/c8e02f76ffb5411bc93a70b4e8f4178cbbc0f68e), [camera topic and 3D map UI](https://github.com/thevinayak26/Atlas_Dashboard/commit/19e1a6bc15fc43dc260d9db5cb31cfe2f64de40f), and [voice/text parsing and ROS publish fix](https://github.com/thevinayak26/Atlas_Dashboard/commit/170f19560164b3bb6486e55e1e861e799dd180bf). The dashboard is a collaborative project; the overall implementation should not be attributed to one person.
